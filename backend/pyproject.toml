@@ -1,0 +1,40 @@
+[project]
+name = "ai-pr-review-backend"
+version = "0.1.0"
+description = "Agentic PR review backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "arq>=0.26",
+    "redis>=5.0",
+    "httpx>=0.27",
+    "langgraph>=1.2.11",
+    "asyncpg>=0.31.0",
+    "pgvector>=0.5.0",
+    "anthropic>=1.4.0",
+    "voyageai>=0.5.0",
+    "openai>=1.40.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "mypy>=1.11",
+    "fakeredis>=2.24",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["webhook_receiver", "job_queue", "api"]

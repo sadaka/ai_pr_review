@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DONE — ai-pr-review</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --line:#30363d; --ink:#e6edf3; --mut:#8b949e;
+          --ok:#2ea043; --warn:#d29922; --bad:#f85149; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.55 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:32px 0 12px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--mut); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:12px 0; }
+  .locked { border-left:3px solid var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; }
+  code { background:#1f2630; padding:1px 6px; border-radius:5px; font-size:13px; }
+  .gate { display:flex; gap:10px; align-items:flex-start; padding:6px 0; }
+  .box { width:16px; height:16px; border:1.5px solid var(--mut); border-radius:4px; flex:0 0 auto; margin-top:2px; }
+  .done .box { background:var(--ok); border-color:var(--ok); }
+  .done .label { color:var(--mut); text-decoration:line-through; }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--mut); }
+  .pill.ok{color:var(--ok);border-color:var(--ok);} .pill.wip{color:var(--warn);border-color:var(--warn);}
+  .note { color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>DONE — ai-pr-review</h1>
+  <p class="sub">The single source of truth for <b>what "done" means</b> and <b>the implementation plan</b>.
+     This file is LOCKED — the driver model may not edit it without explicit user request.
+     Updated: 2026-08-22</p>
+
+  <!-- ───────────── THE LOCKED SPEC ───────────── -->
+  <h2>1 · The Locked Spec (what we are building)</h2>
+  <div class="card locked">
+    <p><b>Cognitive job:</b> Reclaim scarce senior-reviewer attention by automating the mechanical part of PR review. On every incoming pull request, run four specialist reasoners (security, quality, tests, docs) in parallel, each grounded in retrieved codebase context (never the diff alone), and surface only the findings worth a senior engineer's attention — selectivity, not maximal coverage.</p>
+    <p><b>Inputs:</b> GitHub <code>pull_request</code> webhook (diff + metadata) + hybrid-retrieved codebase context (vector + full-text over <code>code_chunks</code>) &nbsp;→&nbsp; <b>Outputs:</b> a structured review posted to the PR — a list of <code>Finding</code>s (agent_type, severity, category, file/line, confidence, rationale) — or entry into the human approval queue</p>
+    <p><b>Autonomy level:</b> Confidence-weighted HITL gate, sitting at "human handles exceptions" on the 5-level spectrum, escalating to "human decides" on CRITICAL findings &nbsp;|&nbsp; <b>Human-in-the-loop points:</b> low-confidence approval queue; CRITICAL-finding escalation (always, regardless of confidence); developer dispute/feedback loop on posted findings</p>
+    <p><b>Failure tolerance:</b> Degrade to slower-but-correct, never fast-but-wrong. Timeouts on every orchestrator node, retries with backoff, circuit breakers on dead services, idempotency at ingress (dedup on <code>X-GitHub-Delivery</code>), dedup across specialist findings at the aggregator &nbsp;|&nbsp; <b>Trust boundary:</b> GitHub App auth; HMAC-SHA256 webhook signature verification; posts as a bot to real (possibly private) repos; threat model must cover prompt injection via untrusted diff/file content</p>
+    <p class="note">Filled during Genesis step G0 (Cognitive Design) via <code>agentic-swe-master</code>.</p>
+  </div>
+
+  <!-- ───────────── DEFINITION OF DONE ───────────── -->
+  <h2>2 · Definition of Done (binary gates — checked by the VERIFIER, not the maker)</h2>
+  <div class="card">
+    <div class="gate"><span class="box"></span><span class="label">Dependency direction inward, zero cycles <span class="note">(modular-architecture gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">Every outbound call has a timeout / circuit-breaker <span class="note">(production-readiness gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">All LLM/structured outputs validated against a schema <span class="note">(llmops gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">Threat model written; prompt-injection / untrusted-input considered <span class="note">(security gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label"><code>mypy backend/</code> clean AND <code>pytest backend/tests</code> green in CI</span></div>
+    <div class="gate"><span class="box"></span><span class="label">One <code>verify</code> pass by a <b>separate</b> agent/model (L4)</span></div>
+    <div class="gate"><span class="box"></span><span class="label">No <code>context-graph.json</code> invariant violated by the change</span></div>
+    <p class="note">A milestone is DONE only when every box above is checked by the verifier. Pull each
+       gate from the relevant <code>agentic-swe-master</code> phase gate.</p>
+  </div>
+
+  <!-- ───────────── IMPLEMENTATION PLAN ───────────── -->
+  <h2>3 · Implementation Plan (the work, sliced into milestones)</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>#</th><th>Milestone</th><th>Phase</th><th>Demo command (proves it works)</th><th>Loops</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>M1</td><td>Tiger Cloud data spine provisioned</td><td>13/14</td><td><code>psql "$TIGER_DATABASE_URL" -c "\dx"</code> + hypertable check</td><td>L1, L4</td><td><span class="pill ok">done</span></td></tr>
+        <tr><td>M2</td><td>Webhook ingress + queue</td><td>3</td><td><code>pytest backend/tests/test_webhook_ingress.py -k "valid_signature and idempotent_replay and enqueues_job"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M3</td><td>LangGraph orchestrator: fan-out + checkpointing</td><td>4</td><td><code>pytest backend/tests/test_orchestrator.py -k "parallel_fanout and checkpoint_resume_after_crash"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M4</td><td>Grounded specialist agents + Finding contract</td><td>5/6/8</td><td><code>pytest backend/tests/test_specialists_e2e.py -k "seeded_repo_diff_produces_valid_findings"</code></td><td>L1, L3, L4</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M5</td><td>Aggregator, HITL gate, GitHub posting</td><td>3/7/19</td><td><code>pytest backend/tests/test_aggregator_hitl_e2e.py -k "high_confidence_auto_posts and low_confidence_queues and critical_always_escalates"</code></td><td>L1, L2, L4</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M6</td><td>Observability spine + cost ledger + BudgetGuard</td><td>10/16</td><td><code>pytest backend/tests/test_observability_budget_e2e.py -k "full_review_traces_to_agent_events and budget_guard_blocks_over_cap"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M7</td><td>Minimal status frontend (deliberately small)</td><td>2</td><td><code>curl -s http://localhost:3000 | grep -q "Reviews"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M8+</td><td>Eval, security hardening, reliability, CI/CD, continuous learning</td><td>9,11,12,17,18,20</td><td><i>sliced after M7 lands — see PLAN.md</i></td><td>—</td><td><span class="pill">todo</span></td></tr>
+      </tbody>
+    </table>
+    <p class="note">Total token budget = (n milestones × 50000). Update <span class="pill wip">wip</span> /
+       <span class="pill ok">done</span> as loops complete. This table is mirrored in <code>PLAN.md</code> for the agent to parse.</p>
+  </div>
+
+  <!-- ───────────── SKILL LOADING ───────────── -->
+  <h2>4 · Skill Loading Per Milestone</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Milestone</th><th>Always-on canon</th><th>Milestone-specific skills</th></tr></thead>
+      <tbody>
+        <tr><td>M1</td><td>agentic-swe-master, coding-orchestrator, modular-architecture</td><td>tdd, data-systems-engineering</td></tr>
+        <tr><td>M2</td><td>(canon)</td><td>tdd, data-systems-engineering</td></tr>
+        <tr><td>M3</td><td>(canon)</td><td>tdd, distributed-systems</td></tr>
+        <tr><td>M4</td><td>(canon)</td><td>tdd, llmops-ai-agents</td></tr>
+        <tr><td>M5</td><td>(canon)</td><td>tdd, production-readiness</td></tr>
+        <tr><td>M6</td><td>(canon)</td><td>tdd, llmops-ai-agents</td></tr>
+        <tr><td>M7</td><td>(canon)</td><td>tdd only — <b>design-system skill deliberately skipped</b>, keep this milestone minimal</td></tr>
+      </tbody>
+    </table>
+    <p class="note">If a milestone needs a skill not listed, G1 logs "skill X needed but not on the menu — loaded ad hoc" so the choice is visible.</p>
+  </div>
+
+</div>
+</body>
+</html>

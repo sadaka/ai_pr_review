@@ -1,0 +1,11 @@
+# CURRENT
+- active_loop: NONE
+- target: M5 (not started)
+- iteration: 0
+- last_gate: G5 (M4 — APPROVE, 1 round; quiz-me logged)
+- last_action: M4 DONE — grounded specialist agents + Finding contract; L4 VERIFY APPROVE; quiz-me logged (Q1 clarified, Q2/Q3 confirmed)
+- next_action: run G0 existence pre-flight on M5 (aggregator + HITL gate + GitHub posting), then L1 BUILD. Reuses M2's GitHub App credentials — no new creds needed.
+- model: claude-sonnet-5
+- tokens_used: 0
+- tokens_budget: 50000
+- skills_loaded: []

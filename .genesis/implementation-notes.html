@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Implementation Notes — ai-pr-review (rolling state)</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --line:#30363d; --ink:#e6edf3; --mut:#8b949e;
+          --ok:#2ea043; --warn:#d29922; --bad:#f85149; --accent:#58a6ff; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.55 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif;}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 24px 80px;}
+  h1{font-size:24px;margin:0 0 4px;}
+  h2{font-size:17px;margin:28px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px;}
+  .sub{color:var(--mut);margin:0 0 20px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0;}
+  .live{border-left:3px solid var(--ok);}
+  code{background:#1f2630;padding:1px 6px;border-radius:5px;font-size:13px;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{color:var(--mut);font-weight:600;}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mut);}
+  .pill.live{color:var(--ok);border-color:var(--ok);} .pill.wip{color:var(--warn);border-color:var(--warn);} .pill.gone{color:var(--bad);border-color:var(--bad);}
+  .note{color:var(--mut);font-size:13px;}
+  ul{margin:6px 0;padding-left:20px;} li{margin:3px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Implementation Notes — ai-pr-review</h1>
+  <p class="sub"><b>Rolling source of truth for what is LIVE right now.</b> The wiki can lag; this file
+     cannot. Read this on every session start to avoid rebuilding what exists. This is your
+     <i>git-like restart point</i>: if context is lost, this file rehydrates you.
+     Last updated: <code>2026-09-04</code> · by loop: <code>L1 BUILD (M3)</code></p>
+
+  <!-- ───────────── ONE-LINE STATUS ───────────── -->
+  <div class="card live">
+    <b>Now in flight:</b> M1 + M2 + M3 + M4 complete; M5 (aggregator, HITL gate, GitHub posting) not started<br>
+    <b>Active loop:</b> none · <b>Current milestone:</b> M4 DONE · <b>Phase:</b> 5/6/8 — LLM &amp; Reasoning, Memory, Multi-Agent<br>
+    <b>Blocked on:</b> nothing. M5 reuses M2's GitHub App credentials — no new credentials needed. <code>OPENAI_API_KEY</code> + <code>TIGER_DATABASE_URL</code> live and exercised by M4's e2e test.
+  </div>
+
+  <!-- ───────────── WHAT'S LIVE ───────────── -->
+  <h2>What is actually built &amp; live</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Capability</th><th>Where (file/route/symbol)</th><th>Status</th><th>Verified by</th></tr></thead>
+      <tbody>
+        <tr><td>Tiger Cloud data spine — memory lane (<code>code_chunks</code>, DiskANN + FTS)</td><td><code>scripts/migrations/2026-06-tiger-init.sql</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M1</td></tr>
+        <tr><td>Tiger Cloud data spine — time lane (<code>agent_events</code> hypertable)</td><td><code>scripts/migrations/2026-06-tiger-init.sql</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M1</td></tr>
+        <tr><td>Tiger Cloud data spine — rollups (<code>agent_health_1m</code>, <code>pr_cost_hourly</code>)</td><td><code>scripts/migrations/2026-06-tiger-init.sql</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M1</td></tr>
+        <tr><td>Tiger Cloud data spine — truth lane (<code>pr_review_records</code>, <code>finding_records</code>, <code>hitl_reviews</code>, <code>hitl_feedback</code>)</td><td><code>scripts/migrations/2026-06-tiger-init.sql</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M1</td></tr>
+        <tr><td>Webhook ingress: HMAC-SHA256 signature verification, dedup on <code>X-GitHub-Delivery</code></td><td><code>backend/webhook_receiver/app.py</code>, <code>signature.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE (2 rounds), M2</td></tr>
+        <tr><td>Job queue: ARQ enqueue, Redis-backed dedup claim/rollback, retry-with-backoff + circuit breaker</td><td><code>backend/job_queue/queue.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE (2 rounds), M2</td></tr>
+        <tr><td>Webhook payload / review-job schemas</td><td><code>backend/api/schemas.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE (2 rounds), M2</td></tr>
+        <tr><td>Workflow engine interface (ADR-001, hides LangGraph vs Temporal)</td><td><code>backend/core/workflow_engine.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE (2 rounds), M3</td></tr>
+        <tr><td>Review graph: 4 stub specialists fanned out via Send API + stub aggregator join</td><td><code>backend/orchestrator/graph.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE (2 rounds), M3</td></tr>
+        <tr><td>Custom async Redis checkpointer (crash-resume, no RediSearch dependency)</td><td><code>backend/orchestrator/redis_checkpointer.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE (2 rounds), M3</td></tr>
+        <tr><td>LangGraph <code>WorkflowEngine</code> implementation</td><td><code>backend/orchestrator/langgraph_engine.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE (2 rounds), M3</td></tr>
+        <tr><td><code>Finding</code> contract (two-tier: LLM produces <code>FindingDraft</code>, code stamps <code>agent_type</code> → <code>Finding</code>)</td><td><code>backend/agents/contracts.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M4</td></tr>
+        <tr><td>Specialist agent base: retrieve → prompt → structured LLM call (OpenAI <code>chat.completions.parse</code>) → stamp → validate; <code>parsed is None</code> → <code>[]</code></td><td><code>backend/agents/base_agent.py</code>, <code>llm_client.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M4</td></tr>
+        <tr><td>Four grounded specialists (security / quality / tests / docs) — <code>agent_type</code> + <code>system_prompt</code> only, shared pipeline</td><td><code>backend/agents/specialists/*.py</code>, <code>backend/prompts/*.md</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M4</td></tr>
+        <tr><td>Hybrid retrieval: DiskANN vector + Postgres FTS over <code>code_chunks</code>, combined by RRF, repo-scoped (sole reader of <code>code_chunks</code>)</td><td><code>backend/memory/context_retriever.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M4</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Append a row the moment a milestone passes L4 VERIFY. The grep in G0 checks against this table.</p>
+  </div>
+
+  <!-- ───────────── DECISIONS THAT BIND ───────────── -->
+  <h2>Decisions that constrain new work</h2>
+  <div class="card">
+    <ul>
+      <li><code>ADR-003</code> — one Tiger Cloud Postgres-compatible spine for memory/truth/time, not three separate databases; Redis stays queue/cache-only → see <code>ai-pr-review-agent.html</code> §2.2–2.4</li>
+      <li><code>M1-fix-1</code> — migration must explicitly <code>CREATE EXTENSION timescaledb_toolkit</code> (not just timescaledb/vector/vectorscale) because the continuous aggregates use <code>percentile_agg</code>/<code>approx_percentile</code>, which are toolkit functions — do not remove this line even though Tiger Cloud pre-bundles the extension</li>
+      <li><code>M2-dedup-ordering</code> — the webhook handler claims the Redis dedup key (<code>mark_seen</code>) <i>before</i> enqueueing, not after: this is what prevents a crash between "enqueue" and "mark-seen" from letting a GitHub redelivery double-enqueue the same job. The tradeoff is a failed enqueue after a successful claim must roll the claim back (<code>unclaim</code>) or a legitimate redelivery gets silently swallowed until the 24h TTL — do not remove the rollback when touching this path.</li>
+      <li><code>M2-redis-timeouts</code> — <code>job_queue/queue.py</code> builds <code>ArqRedis</code> directly instead of using <code>arq.connections.create_pool</code>, because <code>create_pool</code> only wires a connect timeout, not a per-command <code>socket_timeout</code>. Don't switch back to <code>create_pool</code> without re-adding an explicit command timeout.</li>
+      <li><code>M3-no-langgraph-checkpoint-redis</code> — deliberately did NOT use the official <code>langgraph-checkpoint-redis</code> package; it requires a RediSearch module (via <code>redisvl</code>) that Upstash's free tier doesn't provide. <code>orchestrator/redis_checkpointer.py</code> is a hand-written minimal async saver against plain Redis instead — narrower scope (no blob/version-delta storage, no cross-thread listing), sufficient for crash-resume, not a general-purpose replacement.</li>
+      <li><code>M3-resume-input-is-None</code> — <code>LangGraphEngine.run</code> MUST pass <code>None</code> (not <code>{}</code> or any other value) as the graph input when resuming an existing thread — LangGraph treats ANY non-<code>None</code> input as a fresh invocation and re-dispatches from START, re-running every node including ones that already completed. This was M3's actual L4-caught bug; do not regress it.</li>
+      <li><code>M4-llm-provider-openai</code> — the specialists and the embedding retriever run on <b>OpenAI</b> (<code>openai</code> SDK, <code>chat.completions.parse</code> + <code>embeddings.create(dimensions=256)</code>), decided 2026-09-06. <code>anthropic</code> + <code>voyageai</code> remain in <code>pyproject.toml</code> but are <b>unused / reserved</b> — do not wire them or remove them without an explicit decision. If a provider switch is ever made: <code>llm_client.py</code> + <code>base_agent.py</code> move to the Anthropic SDK, and <code>context_retriever.py</code> embeddings move to Voyage (Anthropic has no embeddings API) — ~4 source + 2 test files, plus a full re-embed of <code>code_chunks</code> (embedding spaces are not interchangeable).</li>
+      <li><code>M4-agent-type-stamped-in-code</code> — <code>agent_type</code> is NOT part of <code>FindingDraft</code> (what the LLM emits); it is stamped by <code>Finding.from_draft(draft, agent_type=self.agent_type)</code> from the agent's class attribute. Keeps an un-forgeable field (used for M5 aggregator dedup + HITL routing) out of reach of a prompt-injected diff. Do not "simplify" by asking the model for it.</li>
+      <li><code>M4-specialist-failure-is-empty-list</code> — when the structured LLM call returns <code>parsed is None</code> (refusal / unparseable / length cut), <code>SpecialistAgent.review()</code> returns <code>[]</code>, never raises — one specialist must not break the M3 parallel fan-out/join. Consequence: a persistently-failing agent is currently indistinguishable from a clean one until M6 emits <code>llm.call</code> outcomes to <code>agent_events</code>.</li>
+    </ul>
+  </div>
+
+  <!-- ───────────── DEVIATION LOG ───────────── -->
+  <h2>Deviations from plan (append-only — the "why we didn't do it the obvious way" log)</h2>
+  <div class="card">
+    <p class="note">Append a row whenever the agent couldn't follow approach A and switched to B.
+       This is the institutional memory genesis would otherwise lose silently.
+       Format: date · couldn't use X because Y · used Z instead · invariant impact.</p>
+    <table>
+      <thead><tr><th>Date</th><th>Milestone</th><th>Planned approach</th><th>Actual approach</th><th>Reason</th><th>Invariant impact</th></tr></thead>
+      <tbody>
+        <tr><td>2026-09-06</td><td>M4</td><td>PLAN.md M4 lists <code>OPENAI_API_KEY</code>; the 2026-09-04 draft code imports <code>openai</code></td><td>Kept OpenAI; added <code>openai&gt;=1.40.0</code> to <code>pyproject.toml</code> (which had shipped <code>anthropic</code>+<code>voyageai</code> instead, unused)</td><td><code>pyproject.toml</code> and the draft code disagreed; test collection + mypy failed on the missing module. User confirmed 2026-09-06: stay on OpenAI, keep the other two deps reserved.</td><td>none — <code>structured_output_only</code> unaffected; <code>outbound_call_safety</code> unchanged (timeout+retry via SDK, circuit breaker still deferred to L8/L12)</td></tr>
+        <tr><td>2026-09-06</td><td>M4</td><td>live e2e test with module-scoped async fixtures on the default pytest-asyncio loop</td><td>pinned the module to one loop: <code>pytest.mark.asyncio(loop_scope="module")</code> + <code>@pytest_asyncio.fixture(loop_scope="module")</code></td><td>module-scoped asyncpg pool was created on the first test's function-scoped loop, which then closed → <code>Future attached to a different loop</code></td><td>none — test harness only</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ───────────── KNOWN GAPS / NEXT ───────────── -->
+  <h2>Known gaps &amp; the ordered Next list</h2>
+  <div class="card">
+    <ol>
+      <li>M5 — aggregator, HITL gate, GitHub posting (no new credentials — reuses M2's GitHub App)</li>
+      <li>M6 — observability spine + cost ledger + BudgetGuard. Closes the M4 gap where a failing specialist is silent (emit <code>llm.call</code> outcomes to <code>agent_events</code>).</li>
+      <li>(carried from M4, non-blocking) no circuit breaker on the OpenAI / Tiger outbound calls yet — folded into the L8/L12 reliability gate per the <code>outbound_call_safety</code> invariant's own wording</li>
+      <li>(carried from M4, minor) <code>context_retriever.embed()</code> caps the query at 8000 chars but the FTS param at 2000 — harmless, tidy when next touching that file</li>
+      <li>(separately, not milestone-blocking) get a smee.io channel + do a live webhook smoke test against the real GitHub App once you want to exercise M2 end-to-end outside pytest</li>
+    </ol>
+    <p class="note">Mirror of <code>checkpoints/CURRENT.md → next_action</code>, but human-readable and durable across compaction.</p>
+  </div>
+
+  <!-- ───────────── SESSION LOG (append-only) ───────────── -->
+  <h2>Session log (append-only, newest first)</h2>
+  <div class="card">
+    <p><code>2026-09-04</code> — M2 shipped: <code>backend/webhook_receiver</code> (FastAPI ingress, HMAC-SHA256 verification, X-GitHub-Delivery dedup) + <code>backend/job_queue</code> (ARQ enqueue, Redis dedup claim/rollback, retry-with-backoff + circuit breaker) + <code>backend/api/schemas.py</code>. Also fixed two pre-existing bugs in <code>backend/.env</code> (corrupted REDIS_URL, wrong GITHUB_PRIVATE_KEY_PATH) blocking this milestone. L4 VERIFY round 1: REJECT (no real retry-with-backoff, connect-timeout-only not command-timeout, job-loss race on failed enqueue after successful dedup claim). Fixed all four required items + added the exact regression test requested. L4 VERIFY round 2: APPROVE. Quiz-me: Q1 needed a correction (user's first answer conflated dedup-ordering with GitHub-timeout avoidance; corrected to idempotency-on-retry), Q2/Q3 understood after explanation/directly. 13/13 tests green, mypy clean. Noted but not fixed: an exotic concurrent-redelivery race across the unclaim/mark_seen boundary (single-flight case, which is what's required, is solid). Next: M3.</p>
+    <p><code>2026-09-06</code> — M4 shipped: <code>backend/agents/{contracts,base_agent,llm_client}.py</code> + four specialists (<code>security/quality/tests/docs</code>, each just <code>agent_type</code> + a <code>prompts/*.md</code> system prompt over a shared retrieve→prompt→<code>chat.completions.parse</code>→stamp→validate pipeline) + <code>backend/memory/context_retriever.py</code> (hybrid DiskANN vector + Postgres FTS over <code>code_chunks</code>, combined by reciprocal rank fusion, repo-scoped) + <code>backend/tests/{test_base_agent,test_specialists_e2e}.py</code>. <b>G0 re-check:</b> the code was drafted in a prior (2026-09-04) session but never checkpointed or verified, and did not work — it imported <code>openai</code>, which was neither installed nor in <code>pyproject.toml</code> (which declared <code>anthropic</code>+<code>voyageai</code> instead). User decision 2026-09-06: stay on OpenAI (plan updated), keep the other two deps reserved. Integration-only changes this session — no specialist/retriever/contract logic touched: added <code>openai&gt;=1.40.0</code>; fixed an event-loop-scope bug in the live e2e test (module-scoped asyncpg pool vs pytest-asyncio's function-scoped loop → <code>loop_scope="module"</code>); one <code>type: ignore[import-untyped]</code> on <code>asyncpg</code>. <b>L4 VERIFY (fresh checker): APPROVE</b> — independently ran 26/26 tests green, <code>mypy agents memory prompts</code> clean, and the demo <code>pytest -k seeded_repo_diff_produces_valid_findings</code> green against live OpenAI + Tiger Cloud (all 4 agents ≥1 <code>Finding</code>, security agent flags the seeded SQL injection on <code>app/db.py</code>). Invariants: <code>structured_output_only</code> / <code>single_data_spine</code> / <code>dependency_direction</code> PASS; <code>outbound_call_safety</code> partial-acceptable (timeout + SDK retry/backoff present; circuit breaker deferred to L8/L12 by the invariant's own text). Quiz-me: Q1 (two-tier <code>FindingDraft</code>→<code>Finding</code>) — user first gave the maker/checker rationale, clarified to the "code stamps facts the model shouldn't be trusted with / can't be prompt-injected" reason; Q2 (<code>parsed is None</code> → <code>[]</code>) and Q3 (the loop-scope fix) confirmed. Carry-forward (non-blocking): no circuit breaker on OpenAI/Tiger calls (L8/L12); <code>embed()</code> 8000 vs FTS 2000 char cap; e2e <code>seeded_repo</code> writes <code>code_chunks</code> directly; RRF vector arm has no similarity floor; <code>agents→prompts</code> edge missing from <code>context-graph.json</code>. Next: M5.</p>
+    <p><code>2026-09-04</code> — M3 shipped: <code>backend/core/workflow_engine.py</code> (ADR-001 interface) + <code>backend/orchestrator/graph.py</code> (4 stub specialists via the Send API, stub aggregator join) + <code>backend/orchestrator/redis_checkpointer.py</code> (hand-written minimal async saver, plain Redis, no RediSearch dependency) + <code>backend/orchestrator/langgraph_engine.py</code>. L4 VERIFY round 1: REJECT — resume passed <code>{}</code> instead of <code>None</code>, causing LangGraph to re-dispatch from START and re-run ALL 4 specialists on resume (not just the incomplete ones); the test's own rerun-check was also structurally blind to this bug (set-difference on cumulative call history could never detect it). Fixed the resume input and rewrote both rerun assertions to slice the post-resume call tail; confirmed non-flaky across 8 repeated runs. L4 VERIFY round 2: APPROVE — the verifier went further than usual, independently reintroducing the original bug to confirm both the production fix and the new regression tests actually catch it (they did), then restored the fix. Quiz-me: Q1 needed a correction (user had the None/{} mapping backwards), Q2/Q3 understood after explanation. 16/16 tests green, mypy clean, demo command passes verbatim. Next: M4 (needs OPENAI_API_KEY; also needs the paused Tiger Cloud service resumed for retrieval).</p>
+    <p class="note">One paragraph per session: what shipped, what broke, what's next. This is the narrative the next cold session reads first.</p>
+  </div>
+
+</div>
+</body>
+</html>
