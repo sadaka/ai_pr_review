@@ -32,6 +32,7 @@ from enum import Enum
 from typing import Protocol
 
 from agents.contracts import Finding, Severity
+from observability.events import DECISION, NullEventSink, SupportsEmit
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.75
 
@@ -156,6 +157,7 @@ async def aggregate(
     github: SupportsPostReview,
     truth_store: SupportsTruthStore,
     hitl: SupportsHitlQueue,
+    events: SupportsEmit | None = None,
     threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
 ) -> AggregateResult:
     merged: list[Finding] = [f for agent_findings in findings_by_agent for f in agent_findings]
@@ -186,6 +188,16 @@ async def aggregate(
 
     await truth_store.insert_findings(review_id=review.id, findings=deduped)
     decision = decide(deduped, score, threshold=threshold)
+
+    sink: SupportsEmit = events or NullEventSink()
+    await sink.emit(
+        review_id=review.id,
+        agent="aggregator",
+        event_type=DECISION,
+        outcome=decision.value,
+        confidence=score,
+        payload={"findings": len(deduped), "threshold": threshold},
+    )
 
     if decision is Decision.AUTO_POST:
         event = "APPROVE" if not deduped else "COMMENT"

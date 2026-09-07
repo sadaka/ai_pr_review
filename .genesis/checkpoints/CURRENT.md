@@ -1,11 +1,11 @@
 # CURRENT
-- active_loop: NONE
-- target: M5 (not started)
+- active_loop: none (between milestones)
+- target: M7 (minimal status frontend — deliberately thin, 20k budget)
 - iteration: 0
-- last_gate: G5 (M4 — APPROVE, 1 round; quiz-me logged)
-- last_action: M4 DONE — grounded specialist agents + Finding contract; L4 VERIFY APPROVE; quiz-me logged (Q1 clarified, Q2/Q3 confirmed)
-- next_action: run G0 existence pre-flight on M5 (aggregator + HITL gate + GitHub posting), then L1 BUILD. Reuses M2's GitHub App credentials — no new creds needed.
+- last_gate: L4 VERIFY APPROVE + quiz-me Q+A logged (Q1/Q2 corrected & confirmed, Q3 correct) → M6 DONE
+- last_action: M6 marked done — PLAN.md Progress + implementation-notes.html (status/live-table/decisions/deviations/Next/session-log) + M6.md updated
+- next_action: start M7 at L0 — read the M7 spec + wiki, G0 build-vs-not check. M7 explicitly skips the design-system skill; reads M6 aggregates via a backend API that does NOT exist yet (no api/reviews route) — flag that in G0.
 - model: claude-sonnet-5
-- tokens_used: 0
-- tokens_budget: 50000
-- skills_loaded: []
+- tokens_used: ~135000 (cumulative this session across M4+M5+M6)
+- tokens_budget: 50000 per milestone (M7 capped at 20000)
+- skills_loaded: [claude-api]
