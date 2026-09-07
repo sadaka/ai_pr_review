@@ -1,11 +1,11 @@
 # CURRENT
-- active_loop: none (between milestones)
-- target: M7 (minimal status frontend — deliberately thin, 20k budget)
-- iteration: 0
-- last_gate: L4 VERIFY APPROVE + quiz-me Q+A logged (Q1/Q2 corrected & confirmed, Q3 correct) → M6 DONE
-- last_action: M6 marked done — PLAN.md Progress + implementation-notes.html (status/live-table/decisions/deviations/Next/session-log) + M6.md updated
-- next_action: start M7 at L0 — read the M7 spec + wiki, G0 build-vs-not check. M7 explicitly skips the design-system skill; reads M6 aggregates via a backend API that does NOT exist yet (no api/reviews route) — flag that in G0.
+- active_loop: none (M7 complete)
+- target: M8 (evaluation gate / threat model — to be sliced from the roadmap)
+- iteration: —
+- last_gate: L4 VERIFY APPROVE (M7) + quiz-me logged
+- last_action: M7 DONE — quiz-me Q+A logged to M7.md; PLAN.md progress + implementation-notes.html updated; committing
+- next_action: slice M8 from ai-pr-review-agent.html §4.1, run G0
 - model: claude-sonnet-5
-- tokens_used: ~135000 (cumulative this session across M4+M5+M6)
-- tokens_budget: 50000 per milestone (M7 capped at 20000)
+- tokens_used: ~163000 (cumulative this session across M4+M5+M6+M7)
+- tokens_budget: 50000 per milestone (M7 ran ~28k against a 20k soft cap — boundary widen for the missing API)
 - skills_loaded: [claude-api]

@@ -33,12 +33,12 @@
   <p class="sub"><b>Rolling source of truth for what is LIVE right now.</b> The wiki can lag; this file
      cannot. Read this on every session start to avoid rebuilding what exists. This is your
      <i>git-like restart point</i>: if context is lost, this file rehydrates you.
-     Last updated: <code>2026-09-07</code> · by loop: <code>L4 VERIFY (M6)</code></p>
+     Last updated: <code>2026-09-07</code> · by loop: <code>L4 VERIFY (M7)</code></p>
 
   <!-- ───────────── ONE-LINE STATUS ───────────── -->
   <div class="card live">
-    <b>Now in flight:</b> M1–M6 complete; M7 (minimal status frontend — deliberately thin) not started<br>
-    <b>Active loop:</b> none · <b>Current milestone:</b> M6 DONE · <b>Phase:</b> 10/16 — Observability &amp; Tracing, Economics &amp; Cost Control<br>
+    <b>Now in flight:</b> M1–M7 complete; next is M8 (evaluation gate / threat model — to be sliced)<br>
+    <b>Active loop:</b> none · <b>Current milestone:</b> M7 DONE · <b>Phase:</b> 2 — Frontend Engineering (thin status page) / next 11–16<br>
     <b>Blocked on:</b> nothing. M7 reads the same backend; no new credentials. <b>Carried debt (unchanged since M5):</b> <code>orchestrator/graph.py</code> still runs stub specialists + stub aggregator — wiring it to the real M4 agents + <code>nodes.aggregate()</code>, the ARQ <code>run_review</code> worker, and crash-window idempotency hardening remain deferred. M6's observability + BudgetGuard hooks are <b>opt-in and unwired into the graph</b> for the same reason — they're proven via the direct-drive e2e only.
   </div>
 
@@ -70,6 +70,8 @@
         <tr><td>Events spine: <code>AgentEventSink.emit</code> → one append-only row per action in the <code>agent_events</code> hypertable (<code>span.start</code>/<code>tool.call</code>/<code>llm.call</code>/<code>span.end</code>/<code>decision</code>), auto-stamps <code>cost_usd</code> on llm.call · <code>NullEventSink</code> no-op · <code>get_trace</code>/<code>trace_summary</code> read path</td><td><code>backend/observability/events.py</code>, <code>tracing.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M6</td></tr>
         <tr><td>Cost ledger + BudgetGuard: <code>CostRepository.spend_today_usd()</code> (raw <code>SUM(cost_usd)</code>, UTC-pinned day) · <code>BudgetGuard.check()</code> raises <code>BudgetExceeded</code> at <code>spend ≥ daily_cap</code>, called before any span/LLM · <code>pricing.cost_usd(model, in, out)</code></td><td><code>backend/economics/{budget,cost_repository,pricing}.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M6</td></tr>
         <tr><td>Observability wired opt-in into the pipeline: <code>SpecialistAgent.review(diff, *, review_id=…)</code> emits span/tool/llm events + runs the budget gate; <code>aggregate(events=…)</code> emits the <code>decision</code> row. <code>review_id=None</code> = untouched M4 path.</td><td><code>backend/agents/base_agent.py</code>, <code>orchestrator/nodes.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M6</td></tr>
+        <tr><td>Reviews read API (first HTTP surface besides the webhook): <code>GET /api/reviews</code> → newest-100 <code>pr_review_records</code> <code>LEFT JOIN LATERAL SUM(agent_events.cost_usd)</code>, <code>ORDER BY created_at DESC, id</code> (one query, N+1 avoided) · <code>create_api_app</code> / <code>build_default_app</code> with a FastAPI <code>lifespan</code> pool + per-request <code>get_pool</code> callable (no nested <code>asyncio.run()</code>) · unauthenticated read-only, localhost — auth/exposure hardening deferred</td><td><code>backend/api/reviews.py</code>, <code>app.py</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M7</td></tr>
+        <tr><td>Minimal status frontend: hand-rolled Next.js (no <code>create-next-app</code>) · <code>/</code> async server component, <code>force-dynamic</code>, <code>&lt;h1&gt;Reviews&lt;/h1&gt;</code> + 4-col table (Review / Status / Cost / Confidence), "No reviews yet" empty state · <code>getReviews()</code> <code>fetch(BACKEND_URL/api/reviews, {cache:"no-store"})</code>, try/catch → <code>[]</code> so the page SSRs with the backend down · frontend never touches the DB (<code>dependency_direction</code>)</td><td><code>frontend/src/app/page.tsx</code>, <code>layout.tsx</code>, <code>src/lib/api.ts</code></td><td><span class="pill live">live</span></td><td>L4 VERIFY APPROVE, M7</td></tr>
       </tbody>
     </table>
     <p class="note">Append a row the moment a milestone passes L4 VERIFY. The grep in G0 checks against this table.</p>
