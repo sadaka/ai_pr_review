@@ -1,10 +1,10 @@
 # CURRENT
-- active_loop: idle — M10 complete, awaiting M11 kickoff
-- target: M11 (CI/CD eval gates / DX / continuous learning / governance — to be sliced)
+- active_loop: idle — M11 complete, awaiting M12 kickoff
+- target: M12 (roadmap phases 15/17/18/20 — governance / DX / CI-CD eval gates / drift detection — to be sliced)
 - iteration: 0
-- last_gate: L4 VERIFY APPROVE (M10) + quiz-me 2/3 (Q1 corrected)
-- last_action: logged quiz to M10.md, flipped DONE.html M10 pill + DoD gate #2 (timeout/circuit-breaker) to done, appended M10 progress line to PLAN.md, committing
-- next_action: slice M11 from the M11+ roadmap comment, run G0
+- last_gate: L4 VERIFY APPROVE (M11) + quiz-me 3/3
+- last_action: logged quiz to M11.md, flipped DONE.html M11 pill + the llmops DoD gate to done, appended M11 progress line to PLAN.md, committing
+- next_action: slice M12 from the M12+ roadmap comment, run G0 (candidate: CI/CD eval gates — wire the M9 regression_gate into GitHub Actions)
 - model: claude-sonnet-5
 - tokens_used: 0 (new milestone)
 - tokens_budget: 50000

@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from redis.asyncio import Redis
 
 from core.workflow_engine import WorkflowEngine
-from orchestrator.graph import build_graph
+from orchestrator.graph import GraphDeps, build_graph, build_review_graph
 from orchestrator.redis_checkpointer import RedisSaver
 
 
@@ -18,11 +18,15 @@ class LangGraphEngine(WorkflowEngine):
     """Compiles the review graph once with a Redis-backed checkpointer.
     `thread_id` is passed straight through as LangGraph's own thread id, so
     calling `run` again with the same id resumes the same checkpointed run.
+
+    With `deps` it compiles the real M11 pipeline (4 M4 specialists →
+    `nodes.aggregate`); without, the M3 stub graph (mechanics tests only).
     """
 
-    def __init__(self, redis: Redis) -> None:
+    def __init__(self, redis: Redis, *, deps: GraphDeps | None = None) -> None:
         self._checkpointer = RedisSaver(redis)
-        self._compiled = build_graph().compile(checkpointer=self._checkpointer)
+        graph = build_review_graph(deps) if deps is not None else build_graph()
+        self._compiled = graph.compile(checkpointer=self._checkpointer)
 
     async def run(
         self,

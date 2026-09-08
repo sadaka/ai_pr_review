@@ -1,45 +1,134 @@
-"""M3 scope: the StateGraph shape only — parallel fan-out to 4 STUB specialist
-nodes + a stub aggregator join. No LLM calls, no retrieval, no real findings —
-that's M4 (`agents/**`). This milestone proves the orchestration mechanics
-(parallel execution + checkpoint/resume) work, independent of what the nodes
-eventually do.
+"""The review StateGraph — two builders share one shape:
+
+  - `build_graph()` — the M3 stub graph: 4 stub specialist nodes + a stub
+    aggregator. No LLM, no retrieval, no real findings. Still used by
+    `test_orchestrator.py` to prove the orchestration mechanics (parallel
+    fan-out + checkpoint/resume) independent of what the nodes do.
+
+  - `build_review_graph(deps)` — the M11 real graph: each specialist node runs
+    the corresponding M4 agent (`deps.agents[name].review(...)`) and the
+    aggregator node calls `orchestrator.nodes.aggregate` (the M5 dedup →
+    confidence gate → GitHub post / HITL queue → truth write).
+
+`dependency_direction`: this module imports `agents.specialists` (declared
+edge) and `orchestrator.nodes` (same package). The aggregator's collaborators
+(`github`, `truth_store`, `hitl`, `events`) are injected via the narrow
+Protocols `nodes.py` already defines — so there is still no
+`orchestrator → integrations` / `orchestrator → hitl` import.
 """
 from __future__ import annotations
 
 import asyncio
-import operator
 import time
-from typing import Annotated, Any, TypedDict
+from dataclasses import dataclass, field
+from typing import Any, Mapping
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from agents.base_agent import DiffContext, SpecialistAgent
+from agents.contracts import Finding
+from observability.events import NullEventSink, SupportsEmit
+from orchestrator import nodes
+from orchestrator.nodes import (
+    DEFAULT_CONFIDENCE_THRESHOLD,
+    SupportsHitlQueue,
+    SupportsPostReview,
+    SupportsTruthStore,
+)
+from orchestrator.state import ReviewState
+
 SPECIALIST_NAMES: tuple[str, ...] = ("security", "quality", "tests", "docs")
 
 
-class ReviewState(TypedDict):
-    pr_number: int
-    repo_full_name: str
-    # each specialist appends exactly one result dict; `operator.add` is the
-    # reducer LangGraph uses to merge concurrent parallel writes to this
-    # channel instead of one clobbering another.
-    specialist_results: Annotated[list[dict[str, Any]], operator.add]
-    aggregated: dict[str, Any] | None
+# ── the real (M11) graph ───────────────────────────────────────────────────
+
+
+@dataclass
+class GraphDeps:
+    """Everything the real nodes need, injected at build time (not carried as
+    JSON state — these are live clients/pools)."""
+
+    agents: Mapping[str, SpecialistAgent]
+    github: SupportsPostReview
+    truth_store: SupportsTruthStore
+    hitl: SupportsHitlQueue
+    events: SupportsEmit = field(default_factory=NullEventSink)
+    threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
 
 
 def _dispatch_to_specialists(state: ReviewState) -> list[Send]:
-    """Fan-out via the Send API: one Send per specialist, each carrying its
-    own name so the shared node body knows which specialist it's standing in
-    for."""
     return [Send(name, {**state, "specialist_name": name}) for name in SPECIALIST_NAMES]
 
 
-def _make_specialist_node(name: str):
-    """Stub specialist: no LLM/grounding yet (M4), just proves this branch of
-    the fan-out actually ran, with a call-hook so tests can observe/interrupt
-    it without polluting the persisted graph state."""
+def _make_real_specialist_node(name: str, deps: GraphDeps):
+    async def specialist_node(state: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
+        diff = DiffContext(
+            repo_full_name=state["repo_full_name"],
+            pr_number=state["pr_number"],
+            diff_text=state["diff_text"],
+        )
+        findings = await deps.agents[name].review(diff, review_id=state.get("review_id"))
+        return {
+            "specialist_results": [
+                {"agent": name, "findings": [f.model_dump(mode="json") for f in findings]}
+            ]
+        }
 
+    return specialist_node
+
+
+def _make_real_aggregate_node(deps: GraphDeps):
+    async def aggregate_node(state: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
+        by_agent: dict[str, list[Finding]] = {}
+        for entry in state["specialist_results"]:
+            by_agent[entry["agent"]] = [Finding.model_validate(d) for d in entry["findings"]]
+        findings_by_agent = [by_agent.get(name, []) for name in SPECIALIST_NAMES]
+
+        result = await nodes.aggregate(
+            repo_full_name=state["repo_full_name"],
+            pr_number=state["pr_number"],
+            delivery_id=state["delivery_id"],
+            findings_by_agent=findings_by_agent,
+            github=deps.github,
+            truth_store=deps.truth_store,
+            hitl=deps.hitl,
+            events=deps.events,
+            threshold=deps.threshold,
+        )
+        return {
+            "aggregated": {
+                "review_id": result.review_id,
+                "decision": result.decision.value,
+                "overall_confidence": result.overall_confidence,
+                "github_review_id": result.github_review_id,
+                "hitl_review_id": result.hitl_review_id,
+                "findings": len(result.deduped_findings),
+            }
+        }
+
+    return aggregate_node
+
+
+def build_review_graph(deps: GraphDeps) -> StateGraph:
+    """The real review graph: 4 M4 specialists fanned out, joined at
+    `nodes.aggregate`. Compilation (with a checkpointer) happens in
+    `LangGraphEngine`."""
+    graph = StateGraph(ReviewState)
+    for name in SPECIALIST_NAMES:
+        graph.add_node(name, _make_real_specialist_node(name, deps))
+        graph.add_edge(name, "aggregate")
+    graph.add_node("aggregate", _make_real_aggregate_node(deps))
+    graph.add_conditional_edges(START, _dispatch_to_specialists, list(SPECIALIST_NAMES))
+    graph.add_edge("aggregate", END)
+    return graph
+
+
+# ── the stub (M3) graph — orchestration-mechanics tests only ────────────────
+
+
+def _make_specialist_node(name: str):
     async def specialist_node(state: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
         hooks = (config.get("configurable") or {}).get("test_hooks") or {}
         if on_start := hooks.get("on_start"):
@@ -47,11 +136,7 @@ def _make_specialist_node(name: str):
         if should_crash := hooks.get("should_crash"):
             if should_crash(name):
                 raise RuntimeError(f"simulated crash in specialist node '{name}'")
-
-        # Yields control so concurrent branches actually interleave; tests set a
-        # non-zero delay to make overlapping execution observable.
         await asyncio.sleep(hooks.get("delay_seconds", 0))
-
         if on_complete := hooks.get("on_complete"):
             on_complete(name, time.monotonic())
         return {
@@ -67,7 +152,6 @@ async def _aggregate(state: ReviewState, config: RunnableConfig) -> dict[str, An
     hooks = (config.get("configurable") or {}).get("test_hooks") or {}
     if on_run := hooks.get("on_run"):
         on_run("aggregate")
-
     results = state["specialist_results"]
     return {
         "aggregated": {
@@ -78,17 +162,13 @@ async def _aggregate(state: ReviewState, config: RunnableConfig) -> dict[str, An
 
 
 def build_graph() -> StateGraph:
-    """Build the (uncompiled) review StateGraph. Compilation (with a
-    checkpointer) happens in `LangGraphEngine` — kept separate so tests can
-    compile with whatever checkpointer they need."""
+    """The M3 stub graph — no real work, just the fan-out/join shape for the
+    checkpoint-resume mechanics tests."""
     graph = StateGraph(ReviewState)
-
     for name in SPECIALIST_NAMES:
         graph.add_node(name, _make_specialist_node(name))
         graph.add_edge(name, "aggregate")
-
     graph.add_node("aggregate", _aggregate)
     graph.add_conditional_edges(START, _dispatch_to_specialists, list(SPECIALIST_NAMES))
     graph.add_edge("aggregate", END)
-
     return graph

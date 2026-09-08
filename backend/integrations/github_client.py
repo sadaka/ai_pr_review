@@ -149,7 +149,21 @@ class GitHubAppClient:
         self._installation_tokens[installation_id] = (token, time.monotonic() + 60 * 60)
         return token
 
-    # ── the one public operation M5 needs ───────────────────────────────────
+    # ── public operations ──────────────────────────────────────────────────
+
+    async def get_pull_request_diff(self, *, repo_full_name: str, pr_number: int) -> str:
+        """The unified diff for a PR — the `application/vnd.github.v3.diff`
+        media type returns the raw patch as text, not JSON. This is what the
+        ARQ worker feeds to the specialist agents."""
+        owner, name = repo_full_name.split("/", 1)
+        token = await self._installation_token(repo_full_name)
+        resp = await self._send(
+            "GET",
+            f"/repos/{owner}/{name}/pulls/{pr_number}",
+            auth=f"token {token}",
+            accept="application/vnd.github.v3.diff",
+        )
+        return resp.text
 
     async def post_review(self, *, repo_full_name: str, pr_number: int, body: str, event: str) -> int:
         """Create a PR review. `event` is one of APPROVE / COMMENT / REQUEST_CHANGES.
@@ -167,9 +181,23 @@ class GitHubAppClient:
     # ── transport ───────────────────────────────────────────────────────────
 
     async def _request(self, method: str, path: str, *, auth: str, json: dict | None = None) -> dict:
+        resp = await self._send(method, path, auth=auth, json=json)
+        return resp.json() if resp.content else {}
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        auth: str,
+        json: dict | None = None,
+        accept: str = "application/vnd.github+json",
+    ) -> httpx.Response:
+        """The transport: breaker + retry-with-backoff around one request,
+        returning the successful `Response` (a definitive 4xx raises)."""
         headers = {
             "Authorization": auth,
-            "Accept": "application/vnd.github+json",
+            "Accept": accept,
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
@@ -186,7 +214,7 @@ class GitHubAppClient:
             else:
                 if resp.status_code < 400:
                     self._breaker.on_success()
-                    return resp.json() if resp.content else {}
+                    return resp
                 if not _is_retryable_status(resp.status_code):
                     self._breaker.on_success()  # a 4xx is a definitive answer, not a service failure
                     raise GitHubError(f"GitHub {method} {path} -> {resp.status_code}: {resp.text[:300]}")
