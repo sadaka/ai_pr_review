@@ -147,6 +147,12 @@ CREATE TABLE IF NOT EXISTS finding_records (
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
+-- Makes TruthStore.insert_findings idempotent (ON CONFLICT DO NOTHING target)
+-- so a retried or replayed write inserts each finding once. Added in the
+-- 2026-09-reliability.sql migration (M10); folded here for fresh provisions.
+CREATE UNIQUE INDEX IF NOT EXISTS finding_records_dedup_idx
+    ON finding_records (review_id, agent_type, file_path, COALESCE(line_start, -1), category);
+
 CREATE TABLE IF NOT EXISTS hitl_reviews (
     id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     review_id     UUID         NOT NULL REFERENCES pr_review_records(id),

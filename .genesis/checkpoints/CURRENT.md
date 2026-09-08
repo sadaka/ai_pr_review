@@ -1,10 +1,10 @@
 # CURRENT
-- active_loop: idle — M9 complete, awaiting M10 kickoff
-- target: M10 (reliability under fault injection — phase 12)
+- active_loop: idle — M10 complete, awaiting M11 kickoff
+- target: M11 (CI/CD eval gates / DX / continuous learning / governance — to be sliced)
 - iteration: 0
-- last_gate: L4 VERIFY APPROVE (M9) + quiz-me 3/3
-- last_action: logged quiz to M9.md, flipped DONE.html M9 pill wip→done, appended M9 progress line to PLAN.md, committing
-- next_action: slice M10 from the M10+ roadmap comment (phase 12 — retries/circuit-breakers/idempotency verified under fault injection), run G0
+- last_gate: L4 VERIFY APPROVE (M10) + quiz-me 2/3 (Q1 corrected)
+- last_action: logged quiz to M10.md, flipped DONE.html M10 pill + DoD gate #2 (timeout/circuit-breaker) to done, appended M10 progress line to PLAN.md, committing
+- next_action: slice M11 from the M11+ roadmap comment, run G0
 - model: claude-sonnet-5
 - tokens_used: 0 (new milestone)
 - tokens_budget: 50000

@@ -16,6 +16,22 @@ import asyncpg  # type: ignore[import-untyped]  # asyncpg ships no py.typed mark
 from openai import AsyncOpenAI
 from pgvector.asyncpg import register_vector
 
+from reliability import (
+    DB_COMMAND_TIMEOUT_SECONDS,
+    LLM_TIMEOUT_SECONDS,
+    CircuitBreaker,
+    Guard,
+    OperationTimeout,
+)
+
+_RETRYABLE_DB: tuple[type[BaseException], ...] = (
+    asyncpg.PostgresConnectionError,
+    asyncpg.InterfaceError,
+    OperationTimeout,
+    ConnectionError,
+    OSError,
+)
+
 EMBEDDING_MODEL = "text-embedding-3-small"
 # Must match code_chunks.embedding's column type (vector(256)) from the M1
 # migration — OpenAI's embeddings API truncates via Matryoshka representation
@@ -23,8 +39,6 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSIONS = 256
 RRF_K = 60  # standard reciprocal-rank-fusion damping constant
 _MAX_QUERY_CHARS = 8000  # cap what we send to the embeddings API per query
-
-DB_COMMAND_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass(frozen=True)
@@ -62,23 +76,51 @@ class ContextRetriever:
         self._pool = pool
         self._embeddings = embeddings_client
         self._embedding_model = embedding_model
+        self._db_guard = Guard(
+            breaker=CircuitBreaker(name="tiger-retrieval"),
+            timeout_seconds=DB_COMMAND_TIMEOUT_SECONDS,
+            retry_on=_RETRYABLE_DB,
+        )
+        # attempts=1: the OpenAI SDK client already retries internally; this
+        # layer adds the breaker + an outer timeout.
+        self._embed_guard = Guard(
+            breaker=CircuitBreaker(name="openai-embeddings"),
+            attempts=1,
+            timeout_seconds=LLM_TIMEOUT_SECONDS,
+        )
 
     async def embed(self, text: str) -> list[float]:
-        response = await self._embeddings.embeddings.create(
-            model=self._embedding_model,
-            input=text[:_MAX_QUERY_CHARS] or " ",
-            dimensions=EMBEDDING_DIMENSIONS,
-        )
-        return response.data[0].embedding
+        async def _call() -> list[float]:
+            response = await self._embeddings.embeddings.create(
+                model=self._embedding_model,
+                input=text[:_MAX_QUERY_CHARS] or " ",
+                dimensions=EMBEDDING_DIMENSIONS,
+            )
+            return response.data[0].embedding
+
+        return await self._embed_guard(_call, name="context_retriever.embed")
 
     async def retrieve(self, *, repo: str, query_text: str, k: int = 5) -> list[RetrievedChunk]:
         """Hybrid retrieval, scoped to one repo. Returns up to `k` chunks
         ranked by RRF over (vector-similarity rank, full-text-search rank)."""
         query_embedding = await self.embed(query_text)
 
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
+        async def _fetch() -> list[asyncpg.Record]:
+            async with self._pool.acquire() as conn:
+                return await conn.fetch(
+                    _HYBRID_QUERY,
+                    query_embedding,
+                    repo,
+                    k,
+                    query_text[:2000] or " ",
+                    RRF_K,
+                )
+
+        rows = await self._db_guard(_fetch, name="context_retriever.retrieve")
+        return [RetrievedChunk(path=r["path"], content=r["content"], score=r["rrf_score"]) for r in rows]
+
+
+_HYBRID_QUERY = """
                 WITH vector_ranked AS (
                     SELECT id, path, content, row_number() OVER (ORDER BY embedding <=> $1) AS rank
                     FROM code_chunks
@@ -104,11 +146,4 @@ class ContextRetriever:
                 FULL OUTER JOIN fts_ranked f ON f.id = v.id
                 ORDER BY rrf_score DESC
                 LIMIT $3
-                """,
-                query_embedding,
-                repo,
-                k,
-                query_text[:2000] or " ",
-                RRF_K,
-            )
-        return [RetrievedChunk(path=r["path"], content=r["content"], score=r["rrf_score"]) for r in rows]
+"""

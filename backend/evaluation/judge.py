@@ -14,6 +14,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from agents.contracts import Finding
+from agents.llm_client import guarded_parse
 
 from .golden_dataset import GoldenCase
 
@@ -53,7 +54,8 @@ class LLMJudge:
             f"title: {finding.title}\n"
             f"rationale: {finding.rationale}\n"
         )
-        completion = await self._llm.chat.completions.parse(
+        completion = await guarded_parse(
+            self._llm,
             model=self._model,
             messages=[
                 {"role": "system", "content": JUDGE_SYSTEM},

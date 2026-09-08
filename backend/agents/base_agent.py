@@ -32,7 +32,7 @@ from typing import Protocol
 from openai import AsyncOpenAI
 
 from agents.contracts import AgentType, Finding, SpecialistReviewDraft
-from agents.llm_client import usage_of
+from agents.llm_client import guarded_parse, usage_of
 from memory.context_retriever import ContextRetriever, RetrievedChunk
 from observability.events import (
     LLM_CALL,
@@ -149,7 +149,8 @@ class SpecialistAgent:
         return [Finding.from_draft(f, agent_type=self.agent_type) for f in draft.findings]
 
     async def _parse_completion(self, diff: DiffContext, grounding: list[RetrievedChunk]):
-        return await self._llm.chat.completions.parse(
+        return await guarded_parse(
+            self._llm,
             model=self._model,
             messages=[
                 {

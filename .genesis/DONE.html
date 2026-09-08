@@ -51,7 +51,7 @@
   <h2>2 · Definition of Done (binary gates — checked by the VERIFIER, not the maker)</h2>
   <div class="card">
     <div class="gate"><span class="box"></span><span class="label">Dependency direction inward, zero cycles <span class="note">(modular-architecture gate)</span></span></div>
-    <div class="gate"><span class="box"></span><span class="label">Every outbound call has a timeout / circuit-breaker <span class="note">(production-readiness gate)</span></span></div>
+    <div class="gate done"><span class="box"></span><span class="label">Every outbound call has a timeout / circuit-breaker <span class="note">(production-readiness gate — M10: reliability/ Guard on LLM + Tiger + the review path; Redis/GitHub already covered; residual: api/reviews read-only endpoint, timeout only)</span></span></div>
     <div class="gate"><span class="box"></span><span class="label">All LLM/structured outputs validated against a schema <span class="note">(llmops gate)</span></span></div>
     <div class="gate done"><span class="box"></span><span class="label">Threat model written; prompt-injection / untrusted-input considered <span class="note">(security gate — M8: backend/security/threat_model.md + injection_guard.py)</span></span></div>
     <div class="gate"><span class="box"></span><span class="label"><code>mypy backend/</code> clean AND <code>pytest backend/tests</code> green in CI</span></div>
@@ -76,7 +76,8 @@
         <tr><td>M7</td><td>Minimal status frontend (deliberately small)</td><td>2</td><td><code>curl -s http://localhost:3000 | grep -q "Reviews"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
         <tr><td>M8</td><td>Security: threat model + prompt-injection guard</td><td>11</td><td><code>pytest backend/tests/test_injection_guard.py -k "adversarial_diff_is_neutralized or benign_diff_unchanged or guarded_prompt_reaches_specialist"</code></td><td>L1, L4</td><td><span class="pill ok">done</span></td></tr>
         <tr><td>M9</td><td>Evaluation: golden dataset + LLM-as-judge + regression gate</td><td>9</td><td><code>pytest backend/tests/test_evaluation.py -k "golden_recall_computed or regression_gate_blocks_on_drop or regression_gate_passes_at_baseline"</code></td><td>L1, L4</td><td><span class="pill ok">done</span></td></tr>
-        <tr><td>M10+</td><td>Reliability under fault injection, CI/CD eval gates, DX (prompt playground / trace viewer), continuous learning</td><td>12,17,18,20</td><td><i>sliced after M9 lands — see PLAN.md</i></td><td>—</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M10</td><td>Reliability under fault injection</td><td>12</td><td><code>pytest backend/tests/test_reliability_fault_injection.py -k "retry_then_succeeds or breaker_opens_and_fast_fails or retried_db_write_has_no_duplicate_effect"</code></td><td>L1, L4</td><td><span class="pill ok">done</span></td></tr>
+        <tr><td>M11+</td><td>CI/CD eval gates, DX (prompt playground / trace viewer), continuous learning, governance / explainability</td><td>15,17,18,20</td><td><i>sliced after M10 lands — see PLAN.md</i></td><td>—</td><td><span class="pill">todo</span></td></tr>
       </tbody>
     </table>
     <p class="note">Total token budget = (n milestones × 50000). Update <span class="pill wip">wip</span> /
