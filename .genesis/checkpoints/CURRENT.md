@@ -1,10 +1,10 @@
 # CURRENT
-- active_loop: idle — M8 complete, awaiting M9 kickoff
-- target: M9 (eval — golden dataset + LLM-as-judge + regression gate)
+- active_loop: idle — M9 complete, awaiting M10 kickoff
+- target: M10 (reliability under fault injection — phase 12)
 - iteration: 0
-- last_gate: L4 VERIFY APPROVE (M8) + quiz-me 3/3
-- last_action: logged quiz to M8.md, flipped DONE.html M8 pill + DoD gate #4 to done, appended M8 progress line to PLAN.md, committing
-- next_action: slice M9 from the M9+ roadmap comment (phase 9), run G0
+- last_gate: L4 VERIFY APPROVE (M9) + quiz-me 3/3
+- last_action: logged quiz to M9.md, flipped DONE.html M9 pill wip→done, appended M9 progress line to PLAN.md, committing
+- next_action: slice M10 from the M10+ roadmap comment (phase 12 — retries/circuit-breakers/idempotency verified under fault injection), run G0
 - model: claude-sonnet-5
 - tokens_used: 0 (new milestone)
 - tokens_budget: 50000

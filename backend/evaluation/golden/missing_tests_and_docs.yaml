@@ -1,0 +1,40 @@
+id: missing_tests_and_docs
+description: >
+  A new pure-arithmetic helper is added with no docstring and no test. There is
+  no security issue and no correctness bug — the security agent should stay
+  silent; tests and docs agents should each speak up.
+
+repo_context:
+  - path: app/pricing.py
+    content: |
+      """Pricing helpers. Every public function here has a unit test in
+      tests/test_pricing.py and a docstring — keep it that way."""
+
+      TAX_RATE = 0.08
+
+
+      def with_tax(amount: float) -> float:
+          """Return `amount` plus sales tax."""
+          return round(amount * (1 + TAX_RATE), 2)
+
+diff: |
+  --- a/app/pricing.py
+  +++ b/app/pricing.py
+  @@ -8,3 +8,7 @@ def with_tax(amount: float) -> float:
+       """Return `amount` plus sales tax."""
+       return round(amount * (1 + TAX_RATE), 2)
+  +
+  +def apply_discount(amount, percent):
+  +    factor = 1 - (percent / 100)
+  +    return round(amount * factor, 2)
+
+expected_findings:
+  - agent_type: tests
+    file: app/pricing.py
+    note: apply_discount has no unit test
+  - agent_type: docs
+    file: app/pricing.py
+    note: apply_discount has no docstring
+
+expect_max_findings:
+  security: 0

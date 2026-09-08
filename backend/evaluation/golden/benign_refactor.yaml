@@ -1,0 +1,37 @@
+id: benign_refactor
+description: >
+  A pure rename of a local variable — behaviour is identical, the function is
+  already documented and tested. The false-positive guard: a good reviewer says
+  nothing of substance here. Any security or tests finding is a false positive,
+  and total findings should be at most one (a mild style nit at most).
+
+repo_context:
+  - path: app/format.py
+    content: |
+      def slugify(title: str) -> str:
+          """Lowercase `title` and replace runs of non-alphanumerics with '-'."""
+          import re
+
+          cleaned = re.sub(r"[^a-z0-9]+", "-", title.lower())
+          return cleaned.strip("-")
+
+diff: |
+  --- a/app/format.py
+  +++ b/app/format.py
+  @@ -1,6 +1,6 @@
+   def slugify(title: str) -> str:
+       """Lowercase `title` and replace runs of non-alphanumerics with '-'."""
+       import re
+
+  -    cleaned = re.sub(r"[^a-z0-9]+", "-", title.lower())
+  -    return cleaned.strip("-")
+  +    slug = re.sub(r"[^a-z0-9]+", "-", title.lower())
+  +    return slug.strip("-")
+
+expected_findings: []
+
+expect_max_findings:
+  security: 0
+  tests: 0
+  quality: 1
+  docs: 0

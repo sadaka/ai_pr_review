@@ -1,0 +1,10 @@
+{
+  "mean_recall": 1.0,
+  "total_false_positives": 0,
+  "recorded_at": "2026-09-08T11:13:04.233746+00:00",
+  "cases": [
+    "benign_refactor",
+    "missing_tests_and_docs",
+    "sql_injection_lookup"
+  ]
+}

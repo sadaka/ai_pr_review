@@ -75,7 +75,8 @@
         <tr><td>M6</td><td>Observability spine + cost ledger + BudgetGuard</td><td>10/16</td><td><code>pytest backend/tests/test_observability_budget_e2e.py -k "full_review_traces_to_agent_events and budget_guard_blocks_over_cap"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
         <tr><td>M7</td><td>Minimal status frontend (deliberately small)</td><td>2</td><td><code>curl -s http://localhost:3000 | grep -q "Reviews"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
         <tr><td>M8</td><td>Security: threat model + prompt-injection guard</td><td>11</td><td><code>pytest backend/tests/test_injection_guard.py -k "adversarial_diff_is_neutralized or benign_diff_unchanged or guarded_prompt_reaches_specialist"</code></td><td>L1, L4</td><td><span class="pill ok">done</span></td></tr>
-        <tr><td>M9+</td><td>Eval (golden dataset + LLM-judge + regression gate), reliability under fault injection, CI/CD, continuous learning</td><td>9,12,17,18,20</td><td><i>sliced after M8 lands — see PLAN.md</i></td><td>—</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M9</td><td>Evaluation: golden dataset + LLM-as-judge + regression gate</td><td>9</td><td><code>pytest backend/tests/test_evaluation.py -k "golden_recall_computed or regression_gate_blocks_on_drop or regression_gate_passes_at_baseline"</code></td><td>L1, L4</td><td><span class="pill ok">done</span></td></tr>
+        <tr><td>M10+</td><td>Reliability under fault injection, CI/CD eval gates, DX (prompt playground / trace viewer), continuous learning</td><td>12,17,18,20</td><td><i>sliced after M9 lands — see PLAN.md</i></td><td>—</td><td><span class="pill">todo</span></td></tr>
       </tbody>
     </table>
     <p class="note">Total token budget = (n milestones × 50000). Update <span class="pill wip">wip</span> /

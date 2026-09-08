@@ -1,0 +1,50 @@
+id: sql_injection_lookup
+description: >
+  A new user-lookup function builds its query with an f-string (SQL injection),
+  has no test, and no docstring — alongside an existing correctly parameterized
+  query the specialist can contrast against. The canonical M4 case.
+
+repo_context:
+  - path: app/db.py
+    content: |
+      import sqlite3
+
+      DB_PATH = "app.db"
+
+
+      def get_connection():
+          return sqlite3.connect(DB_PATH)
+
+
+      def get_user_by_id(user_id):
+          """Look up a user by id using a parameterized query."""
+          conn = get_connection()
+          return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+diff: |
+  --- a/app/db.py
+  +++ b/app/db.py
+  @@ -10,3 +10,7 @@ def get_user_by_id(user_id):
+       conn = get_connection()
+       return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+  +
+  +def get_user_by_name(username):
+  +    conn = get_connection()
+  +    query = f"SELECT * FROM users WHERE name = '{username}'"
+  +    return conn.execute(query).fetchone()
+
+expected_findings:
+  - agent_type: security
+    file: app/db.py
+    line: 13
+    line_tolerance: 4
+    rationale_contains: inject
+    note: SQL injection in get_user_by_name
+  - agent_type: tests
+    file: app/db.py
+    note: get_user_by_name has no test
+  - agent_type: docs
+    file: app/db.py
+    note: get_user_by_name has no docstring
+
+expect_max_findings: {}
