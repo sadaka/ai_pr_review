@@ -1,0 +1,40 @@
+name: eval-gate
+
+# The M9 regression gate: on PRs that touch agent behaviour or prompts, run the
+# golden suite and block on a recall drop / false-positive increase vs. the
+# committed baseline.
+#
+# Without repo secrets the gate is SOFT — `regression_gate` exits 0 with a skip
+# notice when TIGER_DATABASE_URL / OPENAI_API_KEY are absent. A maintainer can
+# add those as Actions secrets to make it HARD.
+
+on:
+  pull_request:
+    paths:
+      - "backend/agents/**"
+      - "backend/prompts/**"
+      - "backend/evaluation/**"
+
+jobs:
+  regression-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.8.5"
+          enable-cache: true
+      - run: uv sync --frozen
+
+      # Fast, no-credential check: the prompt REGISTRY.md changelog is in sync.
+      - name: Prompt registry sync
+        run: uv run pytest -q tests/test_prompt_registry.py
+
+      - name: Regression gate
+        env:
+          TIGER_DATABASE_URL: ${{ secrets.TIGER_DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: uv run python -m evaluation.regression_gate

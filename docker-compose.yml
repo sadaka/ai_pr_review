@@ -1,0 +1,73 @@
+# Local / single-host deployment. Tiger Cloud (Postgres) stays external — set
+# TIGER_DATABASE_URL in .env and run the migrations once (see README).
+#
+#   docker compose up --build
+#
+# Services: redis (job queue) + webhook (GitHub events in) + worker (runs the
+# review graph) + api (read API the frontend calls).
+
+x-backend: &backend
+  build: ./backend
+  image: ai-pr-review-backend:local
+  env_file: ./backend/.env
+  environment:
+    REDIS_URL: redis://redis:6379
+  volumes:
+    # GITHUB_PRIVATE_KEY_PATH in .env should point here (e.g. /run/secrets/gh-app.pem).
+    - ./backend/secrets:/run/secrets:ro
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  webhook:
+    <<: *backend
+    command:
+      - uvicorn
+      - webhook_receiver.app:build_default_app
+      - --factory
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+    ports:
+      - "8000:8000"
+
+  api:
+    <<: *backend
+    command:
+      - uvicorn
+      - api.app:build_default_app
+      - --factory
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8001"
+    ports:
+      - "8001:8001"
+
+  worker:
+    <<: *backend
+    command: ["arq", "job_queue.arq_worker.WorkerSettings"]
+
+  # Optional: the M7 status page. `docker compose --profile frontend up`.
+  frontend:
+    profiles: ["frontend"]
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://api:8001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped

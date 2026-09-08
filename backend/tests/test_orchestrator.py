@@ -26,7 +26,7 @@ def new_engine(server: fakeredis.FakeServer) -> LangGraphEngine:
 
 async def test_parallel_fanout_all_four_specialists_run_concurrently(shared_redis_server):
     engine = new_engine(shared_redis_server)
-    intervals: dict[str, tuple[float, float]] = {}
+    intervals: dict[str, list[float | None]] = {}
 
     def on_start(name: str, t: float) -> None:
         intervals.setdefault(name, [None, None])[0] = t

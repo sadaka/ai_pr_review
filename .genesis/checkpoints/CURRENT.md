@@ -1,11 +1,11 @@
 # CURRENT
-- active_loop: idle — M11 complete, awaiting M12 kickoff
-- target: M12 (roadmap phases 15/17/18/20 — governance / DX / CI-CD eval gates / drift detection — to be sliced)
-- iteration: 0
-- last_gate: L4 VERIFY APPROVE (M11) + quiz-me 3/3
-- last_action: logged quiz to M11.md, flipped DONE.html M11 pill + the llmops DoD gate to done, appended M11 progress line to PLAN.md, committing
-- next_action: slice M12 from the M12+ roadmap comment, run G0 (candidate: CI/CD eval gates — wire the M9 regression_gate into GitHub Actions)
+- active_loop: M12 L1 BUILD complete — verifying full suite, then L4
+- target: M12 (CI/CD for AI + deployable packaging — phase 18)
+- iteration: 1
+- last_gate: G0 BUILT (4 design answers: all recommendations accepted)
+- last_action: built prompt registry + versioning, fixed mypy (test_orchestrator), fixed pyproject wheel-packages, added CI (ci.yml + eval-gate.yml), Dockerfile + docker-compose + README + .env.example; removed dead prompts/loader.py
+- next_action: confirm `pytest -q` green (92 tests), write M12 build section, commit
 - model: claude-sonnet-5
-- tokens_used: 0 (new milestone)
+- tokens_used: ~40k this milestone
 - tokens_budget: 50000
-- skills_loaded: []
+- skills_loaded: [genesis LOOPS canon]

@@ -68,6 +68,9 @@ class SpecialistAgent:
 
     agent_type: AgentType
     system_prompt: str
+    # sha256[:12] of `system_prompt`, set by the specialist via `prompts.registry`.
+    # Stamped onto the `span.start` row so a review traces to its prompt revision.
+    prompt_version: str | None = None
 
     def __init__(
         self,
@@ -101,7 +104,10 @@ class SpecialistAgent:
         if self._budget is not None:
             await self._budget.check(agent=agent)
 
-        await self._events.emit(review_id=review_id, agent=agent, event_type=SPAN_START)
+        await self._events.emit(
+            review_id=review_id, agent=agent, event_type=SPAN_START,
+            payload={"prompt_version": self.prompt_version} if self.prompt_version else None,
+        )
         span_started = perf_counter()
         outcome = "ok"
         try:
