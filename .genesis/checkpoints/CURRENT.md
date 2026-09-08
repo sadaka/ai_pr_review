@@ -1,10 +1,10 @@
 # CURRENT
-- active_loop: M12 L1 BUILD complete — verifying full suite, then L4
-- target: M12 (CI/CD for AI + deployable packaging — phase 18)
+- active_loop: M12 SHIPPED (commit ec05c2d) — idle, awaiting next milestone
+- target: M12 (CI/CD for AI + deployable packaging — phase 18) — DONE
 - iteration: 1
-- last_gate: G0 BUILT (4 design answers: all recommendations accepted)
-- last_action: built prompt registry + versioning, fixed mypy (test_orchestrator), fixed pyproject wheel-packages, added CI (ci.yml + eval-gate.yml), Dockerfile + docker-compose + README + .env.example; removed dead prompts/loader.py
-- next_action: confirm `pytest -q` green (92 tests), write M12 build section, commit
+- last_gate: L4 VERIFY passed — mypy . clean (75 files), pytest -q green (92 passed), wheel builds with all packages, regression_gate exits 0 without creds, compose+workflow YAML valid
+- last_action: committed M12 (prompt registry + versioning, CI ci.yml + eval-gate.yml, Dockerfile + docker-compose + README, wheel-packages fix, 3 mypy fixes, removed dead loader.py)
+- next_action: pick next slice — remaining M12+ phases: 15 (governance/explainability), 17 (DX — prompt playground / trace viewer / replay), 20 (continuous learning — drift detection)
 - model: claude-sonnet-5
 - tokens_used: ~40k this milestone
 - tokens_budget: 50000
