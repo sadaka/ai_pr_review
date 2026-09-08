@@ -53,7 +53,7 @@
     <div class="gate"><span class="box"></span><span class="label">Dependency direction inward, zero cycles <span class="note">(modular-architecture gate)</span></span></div>
     <div class="gate"><span class="box"></span><span class="label">Every outbound call has a timeout / circuit-breaker <span class="note">(production-readiness gate)</span></span></div>
     <div class="gate"><span class="box"></span><span class="label">All LLM/structured outputs validated against a schema <span class="note">(llmops gate)</span></span></div>
-    <div class="gate"><span class="box"></span><span class="label">Threat model written; prompt-injection / untrusted-input considered <span class="note">(security gate)</span></span></div>
+    <div class="gate done"><span class="box"></span><span class="label">Threat model written; prompt-injection / untrusted-input considered <span class="note">(security gate — M8: backend/security/threat_model.md + injection_guard.py)</span></span></div>
     <div class="gate"><span class="box"></span><span class="label"><code>mypy backend/</code> clean AND <code>pytest backend/tests</code> green in CI</span></div>
     <div class="gate"><span class="box"></span><span class="label">One <code>verify</code> pass by a <b>separate</b> agent/model (L4)</span></div>
     <div class="gate"><span class="box"></span><span class="label">No <code>context-graph.json</code> invariant violated by the change</span></div>
@@ -74,7 +74,8 @@
         <tr><td>M5</td><td>Aggregator, HITL gate, GitHub posting</td><td>3/7/19</td><td><code>pytest backend/tests/test_aggregator_hitl_e2e.py -k "high_confidence_auto_posts and low_confidence_queues and critical_always_escalates"</code></td><td>L1, L2, L4</td><td><span class="pill">todo</span></td></tr>
         <tr><td>M6</td><td>Observability spine + cost ledger + BudgetGuard</td><td>10/16</td><td><code>pytest backend/tests/test_observability_budget_e2e.py -k "full_review_traces_to_agent_events and budget_guard_blocks_over_cap"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
         <tr><td>M7</td><td>Minimal status frontend (deliberately small)</td><td>2</td><td><code>curl -s http://localhost:3000 | grep -q "Reviews"</code></td><td>L1, L4</td><td><span class="pill">todo</span></td></tr>
-        <tr><td>M8+</td><td>Eval, security hardening, reliability, CI/CD, continuous learning</td><td>9,11,12,17,18,20</td><td><i>sliced after M7 lands — see PLAN.md</i></td><td>—</td><td><span class="pill">todo</span></td></tr>
+        <tr><td>M8</td><td>Security: threat model + prompt-injection guard</td><td>11</td><td><code>pytest backend/tests/test_injection_guard.py -k "adversarial_diff_is_neutralized or benign_diff_unchanged or guarded_prompt_reaches_specialist"</code></td><td>L1, L4</td><td><span class="pill ok">done</span></td></tr>
+        <tr><td>M9+</td><td>Eval (golden dataset + LLM-judge + regression gate), reliability under fault injection, CI/CD, continuous learning</td><td>9,12,17,18,20</td><td><i>sliced after M8 lands — see PLAN.md</i></td><td>—</td><td><span class="pill">todo</span></td></tr>
       </tbody>
     </table>
     <p class="note">Total token budget = (n milestones × 50000). Update <span class="pill wip">wip</span> /

@@ -35,7 +35,7 @@
   ],
   "$comment2": "Seeded from the ADR-002 module map in ai-pr-review-agent.html (greenfield repo, no code yet — G2 instruction: seed from the chosen architecture). Re-run graphizer.mjs --write once real imports exist to replace this with ground truth.",
   "invariants": {
-    "dependency_direction": "backend/core/** imports nothing else under backend/; every other module imports inward only (toward core), never sideways or outward — ADR-002 modular monolith. observability/** is the one exception, injected as cross-cutting middleware.",
+    "dependency_direction": "backend/core/** imports nothing else under backend/; every other module imports inward only (toward core), never sideways or outward — ADR-002 modular monolith. observability/** and security/** are the cross-cutting exceptions, injected as middleware (security/injection_guard fortifies the specialist prompt against untrusted diff/chunk content; the guard is also reachable behind a local SupportsPromptGuard Protocol so a caller may swap it).",
     "outbound_call_safety": "Every outbound call (LLM provider, GitHub API, Tiger Cloud, Redis) has an explicit timeout, retry-with-backoff, and circuit breaker; every retried operation is idempotent (no duplicate side effects on retry) — L8/L12 reliability gate.",
     "structured_output_only": "Every specialist agent (security/quality/tests/docs) returns Finding objects validated against the schema in agents/contracts.py — never raw prose. The aggregator merges data, not text.",
     "single_data_spine": "All durable state (memory/code_chunks, truth/review+finding rows, time/agent_events) lives in the one Tiger Cloud Postgres-compatible store — ADR-003. Redis is queue/cache only, never durable truth."

@@ -115,7 +115,10 @@ async def test_review_includes_grounding_and_diff_in_prompt():
     assert "+ x = 1" in user_message
     assert "app/db.py" in user_message
     assert "def q(): ..." in user_message
-    assert call["messages"][0]["content"] == "you are a stub quality reviewer"
+    # system prompt now carries the injection-guard hardening clause (M8)
+    assert call["messages"][0]["content"].startswith("you are a stub quality reviewer")
+    assert "UNTRUSTED INPUT" in call["messages"][0]["content"]
+    assert "«UNTRUSTED:" in user_message  # diff + chunk are fenced as data
     assert call["response_format"] is SpecialistReviewDraft
 
 

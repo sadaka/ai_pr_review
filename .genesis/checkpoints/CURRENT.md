@@ -1,11 +1,11 @@
 # CURRENT
-- active_loop: none (M7 complete)
-- target: M8 (evaluation gate / threat model — to be sliced from the roadmap)
-- iteration: —
-- last_gate: L4 VERIFY APPROVE (M7) + quiz-me logged
-- last_action: M7 DONE — quiz-me Q+A logged to M7.md; PLAN.md progress + implementation-notes.html updated; committing
-- next_action: slice M8 from ai-pr-review-agent.html §4.1, run G0
+- active_loop: idle — M8 complete, awaiting M9 kickoff
+- target: M9 (eval — golden dataset + LLM-as-judge + regression gate)
+- iteration: 0
+- last_gate: L4 VERIFY APPROVE (M8) + quiz-me 3/3
+- last_action: logged quiz to M8.md, flipped DONE.html M8 pill + DoD gate #4 to done, appended M8 progress line to PLAN.md, committing
+- next_action: slice M9 from the M9+ roadmap comment (phase 9), run G0
 - model: claude-sonnet-5
-- tokens_used: ~163000 (cumulative this session across M4+M5+M6+M7)
-- tokens_budget: 50000 per milestone (M7 ran ~28k against a 20k soft cap — boundary widen for the missing API)
-- skills_loaded: [claude-api]
+- tokens_used: 0 (new milestone)
+- tokens_budget: 50000
+- skills_loaded: []

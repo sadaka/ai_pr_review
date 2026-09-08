@@ -13,6 +13,14 @@ consulted *before* any of that. All of it is opt-in — with no `review_id` the
 pipeline is exactly the M4 path. `observability/**` is the documented exception
 to `dependency_direction`; the budget guard is injected behind a local Protocol
 so this module never imports `economics/**`.
+
+Security (M8): the PR diff and every retrieved chunk are untrusted text. They
+go through `security.injection_guard.InjectionGuard` before reaching the model —
+fenced in per-run random sentinels, invisible/forged-marker chars stripped,
+known injection phrasing flagged — and the guard's hardening clause is appended
+to the system prompt. On by default (fail-safe-on); swappable via the
+`SupportsPromptGuard` Protocol. `security/**` is a cross-cutting exception to
+`dependency_direction`, like `observability/**`.
 """
 from __future__ import annotations
 
@@ -34,6 +42,7 @@ from observability.events import (
     NullEventSink,
     SupportsEmit,
 )
+from security.injection_guard import InjectionGuard, SupportsPromptGuard
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_GROUNDING_K = 5
@@ -69,6 +78,7 @@ class SpecialistAgent:
         grounding_k: int = DEFAULT_GROUNDING_K,
         events: SupportsEmit | None = None,
         budget: SupportsBudgetCheck | None = None,
+        guard: SupportsPromptGuard | None = None,
     ) -> None:
         self._llm = llm
         self._retriever = retriever
@@ -76,6 +86,8 @@ class SpecialistAgent:
         self._grounding_k = grounding_k
         self._events: SupportsEmit = events or NullEventSink()
         self._budget = budget
+        # Injection defense is fail-safe-on: a real guard unless one is injected.
+        self._guard: SupportsPromptGuard = guard or InjectionGuard()
 
     async def review(self, diff: DiffContext, *, review_id: str | None = None) -> list[Finding]:
         # No review_id → the plain M4 path: no budget gate, no event emission.
@@ -140,7 +152,10 @@ class SpecialistAgent:
         return await self._llm.chat.completions.parse(
             model=self._model,
             messages=[
-                {"role": "system", "content": self.system_prompt},
+                {
+                    "role": "system",
+                    "content": f"{self.system_prompt}\n\n{self._guard.hardening_clause()}",
+                },
                 {"role": "user", "content": self._build_prompt(diff, grounding)},
             ],
             response_format=SpecialistReviewDraft,
@@ -149,9 +164,13 @@ class SpecialistAgent:
 
     def _build_prompt(self, diff: DiffContext, grounding: list[RetrievedChunk]) -> str:
         if grounding:
-            context_block = "\n\n".join(f"### {c.path}\n```\n{c.content}\n```" for c in grounding)
+            context_block = "\n\n".join(
+                self._guard.wrap(f"CHUNK {c.path}", c.content) for c in grounding
+            )
         else:
             context_block = "(no related codebase context retrieved)"
+
+        diff_block = self._guard.wrap("PR DIFF", diff.diff_text)
 
         return textwrap.dedent(
             f"""
@@ -159,9 +178,7 @@ class SpecialistAgent:
             Pull request: #{diff.pr_number}
 
             ## Diff under review
-            ```diff
-            {diff.diff_text}
-            ```
+            {diff_block}
 
             ## Retrieved codebase context (grounding — use this, don't guess)
             {context_block}
