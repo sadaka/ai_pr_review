@@ -101,12 +101,47 @@ def create_app(job_queue: SupportsJobQueue, webhook_secret: Callable[[], str] | 
 
 
 def build_default_app() -> FastAPI:  # pragma: no cover - wired up at real runtime, not under test
-    """Production entrypoint: reads env vars directly. Tests use `create_app` instead."""
-    import asyncio
+    """Production entrypoint: reads env vars directly. Tests use `create_app` instead.
+
+    The Redis connection is opened in a FastAPI lifespan handler, not here — this
+    function runs inside uvicorn's event loop when launched with `--factory`, so
+    `asyncio.run()` at this point would raise "cannot be called from a running
+    event loop". A small proxy forwards handler calls to the queue once connected.
+    """
+    from contextlib import asynccontextmanager
 
     from job_queue.queue import JobQueue
 
     redis_url = os.environ["REDIS_URL"]
     webhook_secret = os.environ["GITHUB_WEBHOOK_SECRET"]
-    queue = asyncio.run(JobQueue.connect(redis_url))
-    return create_app(queue, webhook_secret)
+
+    connected: dict[str, JobQueue] = {}
+
+    class _DeferredQueue:
+        def _q(self) -> JobQueue:
+            try:
+                return connected["queue"]
+            except KeyError:
+                raise HTTPException(status_code=503, detail="job queue not connected yet")
+
+        async def mark_seen(self, delivery_id: str) -> bool:
+            return await self._q().mark_seen(delivery_id)
+
+        async def unclaim(self, delivery_id: str) -> None:
+            await self._q().unclaim(delivery_id)
+
+        async def enqueue_review(self, job: ReviewJob) -> str | None:
+            return await self._q().enqueue_review(job)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        connected["queue"] = await JobQueue.connect(redis_url)
+        logger.info("job queue connected")
+        try:
+            yield
+        finally:
+            await connected["queue"].close()
+
+    app = create_app(_DeferredQueue(), webhook_secret)
+    app.router.lifespan_context = lifespan
+    return app
