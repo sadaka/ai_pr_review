@@ -1,5 +1,8 @@
 # ai-pr-review
 
+[![CI](https://github.com/sadaka/ai_pr_review/actions/workflows/ci.yml/badge.svg)](https://github.com/sadaka/ai_pr_review/actions/workflows/ci.yml)
+[![Eval Gate](https://github.com/sadaka/ai_pr_review/actions/workflows/eval-gate.yml/badge.svg)](https://github.com/sadaka/ai_pr_review/actions/workflows/eval-gate.yml)
+
 Self-hosted, agentic pull-request review. Four grounded specialist agents
 read every PR against your actual codebase — not just the diff — and only
 bother a human when it's genuinely uncertain.
