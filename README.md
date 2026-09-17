@@ -333,8 +333,9 @@ tracked in the project's internal planning notes:
 - [ ] Refresh `context-graph.json` (`graphizer.mjs`) — stale since M13
 
 **Open-source housekeeping (not blocking):**
-- [ ] GitHub issue templates (bug report + feature request)
+- [x] GitHub issue templates (bug report + feature request)
 - [ ] Set repo topics/description on GitHub to match this README's tagline
+- [ ] Add a screenshot/GIF of the dashboard + HITL flow
 
 ## Prompt versioning
 
