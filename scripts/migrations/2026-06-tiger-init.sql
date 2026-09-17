@@ -154,12 +154,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS finding_records_dedup_idx
     ON finding_records (review_id, agent_type, file_path, COALESCE(line_start, -1), category);
 
 CREATE TABLE IF NOT EXISTS hitl_reviews (
-    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    review_id     UUID         NOT NULL REFERENCES pr_review_records(id),
-    reason        TEXT         NOT NULL,
-    status        TEXT         NOT NULL DEFAULT 'pending',
-    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    resolved_at   TIMESTAMPTZ
+    id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    review_id        UUID         NOT NULL REFERENCES pr_review_records(id),
+    reason           TEXT         NOT NULL,
+    status           TEXT         NOT NULL DEFAULT 'pending',
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    resolved_at      TIMESTAMPTZ,
+    -- Added in 2026-09-hitl-resolution.sql (M15); folded here for fresh provisions.
+    resolution_note  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS hitl_feedback (

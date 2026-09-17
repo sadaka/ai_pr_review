@@ -18,7 +18,7 @@ from typing import Callable, TypeVar
 
 import asyncpg  # type: ignore[import-untyped]  # asyncpg ships no py.typed marker
 
-from agents.contracts import Finding
+from agents.contracts import AgentType, Finding, Severity
 from reliability import (
     DB_COMMAND_TIMEOUT_SECONDS,
     CircuitBreaker,
@@ -47,6 +47,14 @@ class ReviewRow:
     id: str
     status: str
     github_review_id: int | None
+
+
+@dataclass(frozen=True)
+class ReviewWithFindings:
+    repo: str
+    pr_number: int
+    overall_confidence: float | None
+    findings: list[Finding]
 
 
 async def create_pool(database_url: str) -> asyncpg.Pool:
@@ -144,6 +152,54 @@ class TruthStore:
                 github_review_id,
                 overall_confidence,
             ),
+        )
+
+    async def get_review_with_findings(self, *, review_id: str) -> ReviewWithFindings | None:
+        """M15: reconstructs the same `Finding` objects `insert_findings` wrote,
+        so `orchestrator.nodes.render_review_body` can re-render the identical
+        body a human is approving — one rendering implementation, not two."""
+        review = await self._run(
+            "get_review",
+            lambda: self._pool.fetchrow(
+                "SELECT repo, pr_number, overall_confidence FROM pr_review_records WHERE id = $1",
+                review_id,
+            ),
+        )
+        if review is None:
+            return None
+
+        rows = await self._run(
+            "get_findings",
+            lambda: self._pool.fetch(
+                """
+                SELECT agent_type, severity, category, summary, file_path, line_start, confidence, rationale
+                FROM finding_records
+                WHERE review_id = $1
+                """,
+                review_id,
+            ),
+        )
+        findings = [
+            Finding(
+                agent_type=AgentType(row["agent_type"]),
+                severity=Severity(row["severity"]),
+                category=row["category"],
+                file=row["file_path"],
+                line=row["line_start"],
+                confidence=float(row["confidence"]),
+                title=row["summary"],
+                rationale=row["rationale"],
+            )
+            for row in rows
+        ]
+        overall_confidence = (
+            float(review["overall_confidence"]) if review["overall_confidence"] is not None else None
+        )
+        return ReviewWithFindings(
+            repo=review["repo"],
+            pr_number=review["pr_number"],
+            overall_confidence=overall_confidence,
+            findings=findings,
         )
 
     async def set_status(self, *, review_id: str, status: str, overall_confidence: float) -> None:

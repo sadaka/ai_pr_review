@@ -165,6 +165,49 @@ class GitHubAppClient:
         )
         return resp.text
 
+    async def _default_branch(self, repo_full_name: str) -> str:
+        owner, name = repo_full_name.split("/", 1)
+        token = await self._installation_token(repo_full_name)
+        data = await self._request("GET", f"/repos/{owner}/{name}", auth=f"token {token}")
+        return str(data["default_branch"])
+
+    async def get_repo_head_sha(self, *, repo_full_name: str, ref: str = "HEAD") -> str:
+        """Resolve `ref` to a commit SHA. Used by `ingestion.source_fetcher` to
+        record which commit a tarball was taken at, since the tarball download
+        itself carries no SHA in its response.
+
+        `ref="HEAD"` (the default) is NOT a value GitHub's `GET
+        /repos/{owner}/{repo}/commits/{ref}` endpoint documents accepting — it
+        wants a SHA, branch name, or tag name — so "HEAD" is resolved to the
+        repo's actual default branch first via `GET /repos/{owner}/{repo}`.
+        Any other `ref` (a specific SHA or branch name, e.g. from a `push`
+        event's `after` SHA) is passed straight through.
+        """
+        resolved_ref = await self._default_branch(repo_full_name) if ref == "HEAD" else ref
+        owner, name = repo_full_name.split("/", 1)
+        token = await self._installation_token(repo_full_name)
+        data = await self._request(
+            "GET", f"/repos/{owner}/{name}/commits/{resolved_ref}", auth=f"token {token}"
+        )
+        return str(data["sha"])
+
+    async def download_tarball(self, *, repo_full_name: str, ref: str) -> bytes:
+        """Download a repo's source tree as a gzipped tarball at `ref` (ADR-0005:
+        tarball, not `git clone` — reuses this client's installation-token auth
+        instead of a second credential path). GitHub's tarball endpoint responds
+        with a redirect to codeload.github.com, so this request follows redirects
+        unlike the JSON transport used by `_send`."""
+        owner, name = repo_full_name.split("/", 1)
+        token = await self._installation_token(repo_full_name)
+        resp = await self._send(
+            "GET",
+            f"/repos/{owner}/{name}/tarball/{ref}",
+            auth=f"token {token}",
+            accept="application/vnd.github+json",
+            follow_redirects=True,
+        )
+        return resp.content
+
     async def post_review(self, *, repo_full_name: str, pr_number: int, body: str, event: str) -> int:
         """Create a PR review. `event` is one of APPROVE / COMMENT / REQUEST_CHANGES.
         Returns GitHub's numeric review id."""
@@ -192,6 +235,7 @@ class GitHubAppClient:
         auth: str,
         json: dict | None = None,
         accept: str = "application/vnd.github+json",
+        follow_redirects: bool = False,
     ) -> httpx.Response:
         """The transport: breaker + retry-with-backoff around one request,
         returning the successful `Response` (a definitive 4xx raises)."""
@@ -202,7 +246,9 @@ class GitHubAppClient:
         }
 
         async def _once() -> httpx.Response:
-            return await self._http.request(method, path, headers=headers, json=json)
+            return await self._http.request(
+                method, path, headers=headers, json=json, follow_redirects=follow_redirects
+            )
 
         self._breaker.before_call()
         last_exc: Exception | None = None

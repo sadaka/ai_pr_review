@@ -60,12 +60,17 @@ services:
     <<: *backend
     command: ["arq", "job_queue.arq_worker.WorkerSettings"]
 
-  # Optional: the M7 status page. `docker compose --profile frontend up`.
+  # Optional: the status/dashboard frontend. `docker compose --profile frontend up`.
+  # NEXT_PUBLIC_BACKEND_URL is a build ARG, not a runtime env var: the browser
+  # (not the frontend container) calls the API directly with the M14 bearer
+  # token, so it needs the API's HOST-reachable URL (localhost:8001, the
+  # compose port mapping below), not the in-network "http://api:8001" name.
   frontend:
     profiles: ["frontend"]
-    build: ./frontend
-    environment:
-      BACKEND_URL: http://api:8001
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_BACKEND_URL: http://localhost:8001
     ports:
       - "3000:3000"
     depends_on:

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from arq.connections import ArqRedis, RedisSettings
 
-from api.schemas import ReviewJob
+from api.schemas import IndexRepoJob, ReindexRepoJob, ReviewJob
 
 DELIVERY_DEDUP_TTL_SECONDS = 24 * 60 * 60  # GitHub redelivers for up to 24h
 REDIS_CONNECT_TIMEOUT_SECONDS = 5
@@ -157,4 +157,29 @@ class JobQueue:
             arq_job = await self._guarded(_enqueue)
         except Exception as exc:
             raise JobEnqueueError(f"failed to enqueue review job for delivery {job.delivery_id}") from exc
+        return arq_job.job_id if arq_job else None
+
+    async def enqueue_index_repo(self, job: IndexRepoJob) -> str | None:
+        """Enqueue a full-index job for a repo newly granted to the App
+        (`installation`/`installation_repositories` webhook events)."""
+
+        async def _enqueue():
+            return await self._redis.enqueue_job("index_repo", job.model_dump())
+
+        try:
+            arq_job = await self._guarded(_enqueue)
+        except Exception as exc:
+            raise JobEnqueueError(f"failed to enqueue index_repo job for {job.repo_full_name}") from exc
+        return arq_job.job_id if arq_job else None
+
+    async def enqueue_reindex_repo(self, job: ReindexRepoJob) -> str | None:
+        """Enqueue an incremental-reindex job for a `push` event."""
+
+        async def _enqueue():
+            return await self._redis.enqueue_job("reindex_repo", job.model_dump())
+
+        try:
+            arq_job = await self._guarded(_enqueue)
+        except Exception as exc:
+            raise JobEnqueueError(f"failed to enqueue reindex_repo job for {job.repo_full_name}") from exc
         return arq_job.job_id if arq_job else None

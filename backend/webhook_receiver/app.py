@@ -1,9 +1,9 @@
-"""FastAPI ingress for GitHub `pull_request` webhooks.
+"""FastAPI ingress for GitHub webhooks: `pull_request` (M2, review work),
+plus `installation` / `installation_repositories` / `push` (M13, ingestion).
 
-Flow: verify HMAC signature -> parse minimal payload -> dedup on
-X-GitHub-Delivery -> enqueue a review job -> return 200 BEFORE any review work
-happens (the whole point of M2: ingress is cheap and fast, review work is
-someone else's job, later).
+Flow: verify HMAC signature -> dedup on X-GitHub-Delivery (applies to every
+event type, not just `pull_request`) -> parse + enqueue the event-specific job
+-> return 200 BEFORE any review/ingestion work happens.
 
 Failure handling: any Redis failure (dedup claim OR enqueue) results in a 503,
 never a silent 200. If the dedup claim succeeded but the enqueue then failed,
@@ -15,12 +15,20 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Callable, Protocol
+from typing import Awaitable, Callable, Protocol
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from pydantic import ValidationError
 
-from api.schemas import PullRequestWebhookPayload, ReviewJob
+from api.schemas import (
+    IndexRepoJob,
+    InstallationPayload,
+    InstallationRepositoriesPayload,
+    PullRequestWebhookPayload,
+    PushWebhookPayload,
+    ReindexRepoJob,
+    ReviewJob,
+)
 from webhook_receiver.signature import verify_signature
 
 logger = logging.getLogger("webhook_receiver")
@@ -33,6 +41,79 @@ class SupportsJobQueue(Protocol):
     async def mark_seen(self, delivery_id: str) -> bool: ...
     async def unclaim(self, delivery_id: str) -> None: ...
     async def enqueue_review(self, job: ReviewJob) -> str | None: ...
+    async def enqueue_index_repo(self, job: IndexRepoJob) -> str | None: ...
+    async def enqueue_reindex_repo(self, job: ReindexRepoJob) -> str | None: ...
+
+
+EnqueueOp = Callable[[SupportsJobQueue], Awaitable[object]]
+
+
+def _index_op(delivery_id: str, repo_full_name: str) -> EnqueueOp:
+    async def _op(q: SupportsJobQueue) -> object:
+        return await q.enqueue_index_repo(IndexRepoJob(delivery_id=delivery_id, repo_full_name=repo_full_name))
+
+    return _op
+
+
+def _build_enqueue_ops(event: str, delivery_id: str, raw_body: bytes) -> list[EnqueueOp] | None:
+    """Parse `raw_body` for `event` and return the list of enqueue operations
+    to run once the dedup claim succeeds. `None` means "nothing to enqueue"
+    (e.g. an `installation_repositories` event with no repos added) — the
+    caller acks 200 without ever claiming the delivery id."""
+
+    if event == "pull_request":
+        pr_payload = PullRequestWebhookPayload.model_validate_json(raw_body)
+        review_job = ReviewJob(
+            delivery_id=delivery_id,
+            repo_full_name=pr_payload.repository.full_name,
+            pr_number=pr_payload.number,
+            action=pr_payload.action,
+        )
+
+        async def _review_op(q: SupportsJobQueue) -> object:
+            return await q.enqueue_review(review_job)
+
+        return [_review_op]
+
+    if event == "installation":
+        installation_payload = InstallationPayload.model_validate_json(raw_body)
+        if installation_payload.action != "created" or not installation_payload.repositories:
+            return None
+        return [_index_op(delivery_id, repo.full_name) for repo in installation_payload.repositories]
+
+    if event == "installation_repositories":
+        repos_payload = InstallationRepositoriesPayload.model_validate_json(raw_body)
+        if not repos_payload.repositories_added:
+            return None
+        return [_index_op(delivery_id, repo.full_name) for repo in repos_payload.repositories_added]
+
+    if event == "push":
+        push_payload = PushWebhookPayload.model_validate_json(raw_body)
+        added: list[str] = []
+        modified: list[str] = []
+        removed: list[str] = []
+        for commit in push_payload.commits:
+            added.extend(commit.added)
+            modified.extend(commit.modified)
+            removed.extend(commit.removed)
+        if not (added or modified or removed):
+            return None
+        reindex_job = ReindexRepoJob(
+            delivery_id=delivery_id,
+            repo_full_name=push_payload.repository.full_name,
+            before_sha=push_payload.before,
+            after_sha=push_payload.after,
+            added=added,
+            modified=modified,
+            removed=removed,
+        )
+
+        async def _reindex_op(q: SupportsJobQueue) -> object:
+            return await q.enqueue_reindex_repo(reindex_job)
+
+        return [_reindex_op]
+
+    return None  # pragma: no cover - unreachable, event already filtered by caller
 
 
 def create_app(job_queue: SupportsJobQueue, webhook_secret: Callable[[], str] | str) -> FastAPI:
@@ -58,14 +139,17 @@ def create_app(job_queue: SupportsJobQueue, webhook_secret: Callable[[], str] | 
         if not x_github_delivery:
             raise HTTPException(status_code=400, detail="missing X-GitHub-Delivery header")
 
-        # Only pull_request events carry review work; ack everything else cheaply.
-        if x_github_event != "pull_request":
-            return Response(status_code=200, content="ignored: not a pull_request event")
+        # Events with no ingestion/review work: ack cheaply, never enqueue.
+        if x_github_event not in ("pull_request", "installation", "installation_repositories", "push"):
+            return Response(status_code=200, content=f"ignored: unhandled event {x_github_event}")
 
         try:
-            payload = PullRequestWebhookPayload.model_validate_json(raw_body)
+            enqueue_ops = _build_enqueue_ops(x_github_event, x_github_delivery, raw_body)
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        if enqueue_ops is None:  # a recognized event with nothing to do (e.g. no repos added)
+            return Response(status_code=200, content=f"ignored: nothing to enqueue for {x_github_event}")
 
         try:
             is_new = await job_queue.mark_seen(x_github_delivery)
@@ -77,14 +161,9 @@ def create_app(job_queue: SupportsJobQueue, webhook_secret: Callable[[], str] | 
             logger.info("duplicate delivery %s — skipping enqueue", x_github_delivery)
             return Response(status_code=200, content="duplicate delivery, already processed")
 
-        job = ReviewJob(
-            delivery_id=x_github_delivery,
-            repo_full_name=payload.repository.full_name,
-            pr_number=payload.number,
-            action=payload.action,
-        )
         try:
-            await job_queue.enqueue_review(job)
+            for op in enqueue_ops:
+                await op(job_queue)
         except Exception:
             logger.exception("enqueue failed for delivery %s — rolling back dedup claim", x_github_delivery)
             try:
@@ -132,6 +211,12 @@ def build_default_app() -> FastAPI:  # pragma: no cover - wired up at real runti
 
         async def enqueue_review(self, job: ReviewJob) -> str | None:
             return await self._q().enqueue_review(job)
+
+        async def enqueue_index_repo(self, job: IndexRepoJob) -> str | None:
+            return await self._q().enqueue_index_repo(job)
+
+        async def enqueue_reindex_repo(self, job: ReindexRepoJob) -> str | None:
+            return await self._q().enqueue_reindex_repo(job)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):

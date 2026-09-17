@@ -49,6 +49,7 @@ packages = [
     "economics",
     "evaluation",
     "hitl",
+    "ingestion",
     "integrations",
     "job_queue",
     "memory",

@@ -19,9 +19,10 @@ from typing import TYPE_CHECKING, Any
 
 from arq.connections import RedisSettings
 
-from api.schemas import ReviewJob
+from api.schemas import IndexRepoJob, ReindexRepoJob, ReviewJob
 
 if TYPE_CHECKING:
+    from ingestion.indexer import Indexer
     from integrations.github_client import GitHubAppClient
     from integrations.truth_store import TruthStore
     from orchestrator.langgraph_engine import LangGraphEngine
@@ -39,6 +40,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     from agents.llm_client import create_llm_client
     from agents.specialists import DocsAgent, QualityAgent, SecurityAgent, TestsAgent
     from hitl.queue import HitlQueue
+    from ingestion.indexer import Indexer
     from integrations.github_client import GitHubAppClient
     from integrations.truth_store import TruthStore
     from memory.context_retriever import ContextRetriever, create_pool
@@ -60,6 +62,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     github = GitHubAppClient.from_env(dict(os.environ))
     truth_store = TruthStore(pool)
     hitl = HitlQueue(pool)
+    indexer = Indexer(pool, llm, github)
 
     redis = Redis.from_url(os.environ["REDIS_URL"])
     engine = LangGraphEngine(
@@ -67,7 +70,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         deps=GraphDeps(agents=agents, github=github, truth_store=truth_store, hitl=hitl, events=events),
     )
 
-    ctx.update(pool=pool, redis=redis, github=github, truth_store=truth_store, engine=engine)
+    ctx.update(pool=pool, redis=redis, github=github, truth_store=truth_store, engine=engine, indexer=indexer)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -121,12 +124,47 @@ async def run_review(ctx: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]
     return aggregated
 
 
+async def index_repo(ctx: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+    """`installation`/`installation_repositories` job: full-index a repo newly
+    granted to the App."""
+    index_job = IndexRepoJob.model_validate(job)
+    indexer: Indexer = ctx["indexer"]
+    result = await indexer.full_index(index_job.repo_full_name)
+    return {
+        "repo_full_name": result.repo_full_name,
+        "commit_sha": result.commit_sha,
+        "chunk_count": result.chunk_count,
+    }
+
+
+async def reindex_repo(ctx: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+    """`push` job: incrementally re-index only the files GitHub reports as
+    added/modified, and delete chunks for removed files."""
+    from ingestion.indexer import ChangedFiles
+
+    reindex_job = ReindexRepoJob.model_validate(job)
+    indexer: Indexer = ctx["indexer"]
+    result = await indexer.incremental_index(
+        reindex_job.repo_full_name,
+        before_sha=reindex_job.before_sha,
+        after_sha=reindex_job.after_sha,
+        changed=ChangedFiles(
+            added=reindex_job.added, modified=reindex_job.modified, removed=reindex_job.removed
+        ),
+    )
+    return {
+        "repo_full_name": result.repo_full_name,
+        "commit_sha": result.commit_sha,
+        "chunk_count": result.chunk_count,
+    }
+
+
 class WorkerSettings:
     """`arq job_queue.arq_worker.WorkerSettings` runs the worker. Tests drive
     `run_review` directly rather than via the arq CLI (see the M11 checkpoint's
     out-of-scope note), so this only needs to be importable + correct."""
 
-    functions = [run_review]
+    functions = [run_review, index_repo, reindex_repo]
     on_startup = startup
     on_shutdown = shutdown
     max_tries = 3
