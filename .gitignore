@@ -1,6 +1,7 @@
 backend/.env
 backend/secrets/
 .genesis/
+ai-pr-review-agent.html
 node_modules/
 __pycache__/
 *.pyc
