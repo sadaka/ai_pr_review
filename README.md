@@ -303,7 +303,7 @@ with them.
 M1–M16 (data spine, webhook/queue, orchestration, grounded agents,
 aggregator/HITL, observability/budget, frontend, security, eval, reliability,
 CI/CD, multi-repo ingestion, auth, HITL API, dashboard) are done. Remaining,
-per `.genesis/PLAN.md` / `.genesis/checkpoints/CURRENT.md`:
+tracked in the project's internal planning notes:
 
 **Deferred roadmap phases (unsliced):**
 - [ ] Governance / explainability
@@ -331,6 +331,10 @@ per `.genesis/PLAN.md` / `.genesis/checkpoints/CURRENT.md`:
 - [ ] A real chaos harness against live Tiger Cloud/Redis; exercise the
       `arq` worker in CI
 - [ ] Refresh `context-graph.json` (`graphizer.mjs`) — stale since M13
+
+**Open-source housekeeping (not blocking):**
+- [ ] GitHub issue templates (bug report + feature request)
+- [ ] Set repo topics/description on GitHub to match this README's tagline
 
 ## Prompt versioning
 
