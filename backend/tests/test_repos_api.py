@@ -72,6 +72,8 @@ async def test_repos_list_includes_index_state(client, pool):
         assert row["last_indexed_commit"] == "deadbeef"
         assert row["chunk_count"] == 42
         assert row["review_count"] == 1
+        assert row["status"] == "done"  # default backfilled by the status migration
+        assert row["error"] is None
     finally:
         await pool.execute("DELETE FROM pr_review_records WHERE id = $1", review_id)
         await pool.execute("DELETE FROM repo_index_state WHERE repo = $1", repo)
@@ -81,3 +83,43 @@ async def test_repos_list_empty_when_no_rows(client):
     resp = await client.get("/api/repos")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+async def test_repos_list_shows_pending_repo_with_no_commit_yet(client, pool):
+    """A repo whose webhook just fired (`ingestion.repo_status.RepoStatusStore`)
+    has no successful index yet — no commit, no chunks — but should still show
+    up as `pending` rather than being absent from the dashboard."""
+    repo = f"test-fixture/m16-pending-{uuid.uuid4().hex[:8]}"
+
+    await pool.execute(
+        "INSERT INTO repo_index_state (repo, status) VALUES ($1, 'pending')", repo
+    )
+
+    try:
+        resp = await client.get("/api/repos")
+        assert resp.status_code == 200
+        row = next(r for r in resp.json() if r["repo"] == repo)
+        assert row["status"] == "pending"
+        assert row["last_indexed_commit"] is None
+        assert row["chunk_count"] == 0
+    finally:
+        await pool.execute("DELETE FROM repo_index_state WHERE repo = $1", repo)
+
+
+async def test_repos_list_shows_failed_repo_with_error(client, pool):
+    repo = f"test-fixture/m16-failed-{uuid.uuid4().hex[:8]}"
+
+    await pool.execute(
+        "INSERT INTO repo_index_state (repo, status, error) VALUES ($1, 'failed', $2)",
+        repo,
+        "tarball fetch failed: 404",
+    )
+
+    try:
+        resp = await client.get("/api/repos")
+        assert resp.status_code == 200
+        row = next(r for r in resp.json() if r["repo"] == repo)
+        assert row["status"] == "failed"
+        assert row["error"] == "tarball fetch failed: 404"
+    finally:
+        await pool.execute("DELETE FROM repo_index_state WHERE repo = $1", repo)

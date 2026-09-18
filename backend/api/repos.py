@@ -16,15 +16,17 @@ from pydantic import BaseModel
 
 class RepoSummary(BaseModel):
     repo: str
-    last_indexed_commit: str
+    status: str
+    last_indexed_commit: str | None
     indexed_at: datetime
     chunk_count: int
     review_count: int
+    error: str | None
 
 
 _QUERY = """
-    SELECT ris.repo, ris.last_indexed_commit, ris.indexed_at, ris.chunk_count,
-           COALESCE(rc.review_count, 0) AS review_count
+    SELECT ris.repo, ris.status, ris.last_indexed_commit, ris.indexed_at, ris.chunk_count,
+           ris.error, COALESCE(rc.review_count, 0) AS review_count
     FROM repo_index_state ris
     LEFT JOIN LATERAL (
         SELECT count(*) AS review_count
@@ -44,10 +46,12 @@ def create_repos_router(get_pool: Callable[[], asyncpg.Pool]) -> APIRouter:
         return [
             RepoSummary(
                 repo=row["repo"],
+                status=row["status"],
                 last_indexed_commit=row["last_indexed_commit"],
                 indexed_at=row["indexed_at"],
                 chunk_count=row["chunk_count"],
                 review_count=row["review_count"],
+                error=row["error"],
             )
             for row in rows
         ]

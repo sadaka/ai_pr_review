@@ -20,6 +20,20 @@ function cost(value: number): string {
   return `$${value.toFixed(4)}`;
 }
 
+const statusColor: Record<RepoSummary["status"], string> = {
+  pending: "#d29922",
+  done: "#3fb950",
+  failed: "#f85149",
+};
+
+function StatusBadge({ status, error }: { status: RepoSummary["status"]; error: string | null }) {
+  return (
+    <span style={{ color: statusColor[status] }} title={status === "failed" ? error ?? undefined : undefined}>
+      ● {status}
+    </span>
+  );
+}
+
 export default function Page() {
   const router = useRouter();
   const [repos, setRepos] = useState<RepoSummary[] | null>(null);
@@ -70,6 +84,7 @@ export default function Page() {
           <thead>
             <tr>
               <th style={{ ...cell, color: "#8b949e" }}>Repo</th>
+              <th style={{ ...cell, color: "#8b949e" }}>Status</th>
               <th style={{ ...cell, color: "#8b949e" }}>Last indexed commit</th>
               <th style={{ ...cell, color: "#8b949e" }}>Indexed at</th>
               <th style={{ ...cell, color: "#8b949e" }}>Chunks</th>
@@ -79,7 +94,7 @@ export default function Page() {
           <tbody>
             {repos.length === 0 ? (
               <tr>
-                <td style={{ ...cell, color: "#8b949e" }} colSpan={5}>
+                <td style={{ ...cell, color: "#8b949e" }} colSpan={6}>
                   No repos indexed yet.
                 </td>
               </tr>
@@ -90,7 +105,10 @@ export default function Page() {
                     <code>{r.repo}</code>
                   </td>
                   <td style={cell}>
-                    <code>{r.last_indexed_commit.slice(0, 12)}</code>
+                    <StatusBadge status={r.status} error={r.error} />
+                  </td>
+                  <td style={cell}>
+                    <code>{r.last_indexed_commit ? r.last_indexed_commit.slice(0, 12) : "—"}</code>
                   </td>
                   <td style={cell}>{new Date(r.indexed_at).toLocaleString()}</td>
                   <td style={cell}>{r.chunk_count}</td>

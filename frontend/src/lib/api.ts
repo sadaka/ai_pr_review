@@ -39,10 +39,12 @@ export type ReviewDetail = ReviewSummary & {
 
 export type RepoSummary = {
   repo: string;
-  last_indexed_commit: string;
+  status: "pending" | "done" | "failed";
+  last_indexed_commit: string | null;
   indexed_at: string;
   chunk_count: number;
   review_count: number;
+  error: string | null;
 };
 
 export type PendingHitlItem = {
