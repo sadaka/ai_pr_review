@@ -124,16 +124,21 @@ class Indexer:
                             repo_full_name,
                             list(touched_paths),
                         )
-                    for chunk, embedding in embedded:
-                        await conn.execute(
+                    if embedded:
+                        await conn.executemany(
                             _UPSERT_CHUNK,
-                            repo_full_name,
-                            chunk.path,
-                            chunk.symbol,
-                            chunk.chunk_index,
-                            chunk.content,
-                            embedding,
-                            len(chunk.content.split()),
+                            [
+                                (
+                                    repo_full_name,
+                                    chunk.path,
+                                    chunk.symbol,
+                                    chunk.chunk_index,
+                                    chunk.content,
+                                    embedding,
+                                    len(chunk.content.split()),
+                                )
+                                for chunk, embedding in embedded
+                            ],
                         )
                     total_chunks = await conn.fetchval(
                         "SELECT count(*) FROM code_chunks WHERE repo = $1", repo_full_name
