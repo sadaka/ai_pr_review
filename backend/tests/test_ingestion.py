@@ -91,6 +91,14 @@ class FakeJobQueue:
         return "fake-reindex-job-id"
 
 
+class FakeRepoStatusStore:
+    def __init__(self) -> None:
+        self.marked_pending: list[str] = []
+
+    async def mark_pending(self, repo_full_name: str) -> None:
+        self.marked_pending.append(repo_full_name)
+
+
 # ── chunker unit tests ───────────────────────────────────────────────────
 
 
@@ -201,6 +209,18 @@ async def test_push_event_enqueues_reindex_job():
     assert job.added == ["new.py"] and job.modified == ["existing.py"] and job.removed == ["gone.py"]
 
 
+async def test_push_event_marks_repo_pending():
+    queue = FakeJobQueue()
+    status_store = FakeRepoStatusStore()
+    app = create_app(queue, TEST_SECRET, status_store)
+    body = _push_payload(added=["new.py"])
+
+    resp = await _post(app, body, event="push")
+
+    assert resp.status_code == 200
+    assert status_store.marked_pending == ["acme/widgets"]
+
+
 async def test_push_event_with_no_file_changes_enqueues_nothing():
     queue = FakeJobQueue()
     app = create_app(queue, TEST_SECRET)
@@ -228,6 +248,25 @@ async def test_installation_created_event_enqueues_index_repo_per_repo():
 
     assert resp.status_code == 200
     assert {j.repo_full_name for j in queue.enqueued_index} == {"acme/widgets", "acme/gadgets"}
+
+
+async def test_installation_created_event_marks_each_repo_pending():
+    import json
+
+    queue = FakeJobQueue()
+    status_store = FakeRepoStatusStore()
+    app = create_app(queue, TEST_SECRET, status_store)
+    body = json.dumps(
+        {
+            "action": "created",
+            "repositories": [{"full_name": "acme/widgets"}, {"full_name": "acme/gadgets"}],
+        }
+    ).encode()
+
+    resp = await _post(app, body, event="installation")
+
+    assert resp.status_code == 200
+    assert set(status_store.marked_pending) == {"acme/widgets", "acme/gadgets"}
 
 
 # ── live: full index / incremental / removed-file deletion ──────────────

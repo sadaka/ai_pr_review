@@ -164,3 +164,23 @@ async def test_queue_unavailable_returns_503():
     assert resp.status_code == 503
 
 
+class FakeRepoStatusStore:
+    def __init__(self) -> None:
+        self.marked_pending: list[str] = []
+
+    async def mark_pending(self, repo_full_name: str) -> None:
+        self.marked_pending.append(repo_full_name)
+
+
+async def test_pull_request_event_does_not_touch_repo_status_store():
+    queue = FakeJobQueue()
+    status_store = FakeRepoStatusStore()
+    app = create_app(queue, TEST_SECRET, status_store)
+    body = pull_request_payload()
+
+    resp = await _post(app, body, signature=sign(body), delivery="delivery-7")
+
+    assert resp.status_code == 200
+    assert status_store.marked_pending == []
+
+
