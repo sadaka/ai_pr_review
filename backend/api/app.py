@@ -23,6 +23,7 @@ from typing import Protocol
 
 import asyncpg  # type: ignore[import-untyped]
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.hitl import SupportsHitlQueue, SupportsPostReview, SupportsTruthStore, create_hitl_router
 from api.repos import create_repos_router
@@ -33,6 +34,26 @@ from integrations.github_client import GitHubAppClient
 from integrations.truth_store import TruthStore
 
 _COMMAND_TIMEOUT_SECONDS = 10.0  # outbound_call_safety
+
+
+def _cors_origins() -> list[str]:
+    """The frontend runs on its own origin (e.g. localhost:3000) and calls this
+    API cross-origin with an `Authorization` header, which browsers preflight
+    via `OPTIONS` — without CORS middleware that preflight 405s before the
+    real request is ever sent. Comma-separated `CORS_ALLOWED_ORIGINS` overrides
+    the local-dev default."""
+    raw = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+def _add_cors(app: FastAPI) -> None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins(),
+        allow_credentials=False,  # auth is a bearer header, not cookies
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 
 class SupportsGitHub(SupportsPostReview, SupportsGetDiff, Protocol):
@@ -65,6 +86,7 @@ def create_api_app(
         return github_client
 
     app = FastAPI(title="ai-pr-review read API")
+    _add_cors(app)
     app.include_router(
         create_reviews_router(lambda: pool, get_github=lambda: github_client),
         dependencies=[Depends(require_auth)],
@@ -94,6 +116,7 @@ def build_default_app() -> FastAPI:  # pragma: no cover - wired at real runtime,
             await app.state.pool.close()
 
     app = FastAPI(title="ai-pr-review read API", lifespan=lifespan)
+    _add_cors(app)
     app.include_router(
         create_reviews_router(lambda: app.state.pool, get_github=lambda: app.state.github),
         dependencies=[Depends(require_auth)],
