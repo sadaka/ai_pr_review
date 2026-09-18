@@ -22,8 +22,9 @@ from httpx import ASGITransport
 
 from api.schemas import IndexRepoJob, ReindexRepoJob, ReviewJob
 from ingestion.chunker import chunk_file, chunk_repo
-from ingestion.indexer import ChangedFiles, Indexer
+from ingestion.indexer import ChangedFiles, IndexResult, Indexer
 from ingestion.source_fetcher import FetchedSource, fetch_tarball
+from job_queue.arq_worker import index_repo, reindex_repo
 from tests.conftest import TEST_SECRET, sign
 from webhook_receiver.app import create_app
 
@@ -267,6 +268,71 @@ async def test_installation_created_event_marks_each_repo_pending():
 
     assert resp.status_code == 200
     assert set(status_store.marked_pending) == {"acme/widgets", "acme/gadgets"}
+
+
+# ── arq worker: index_repo/reindex_repo mark the repo failed on error ────
+
+
+class FakeIndexer:
+    """Fake `Indexer` — exercises the ARQ job functions' failure-handling
+    wiring (`mark_failed` called, then the original exception re-raised so
+    ARQ's own retry/max_tries machinery still sees it) without touching a
+    real DB, GitHub, or OpenAI."""
+
+    def __init__(self, *, raise_error: Exception | None = None) -> None:
+        self._raise_error = raise_error
+        self.failed: list[tuple[str, str]] = []
+
+    async def full_index(self, repo_full_name: str) -> IndexResult:
+        if self._raise_error:
+            raise self._raise_error
+        return IndexResult(repo_full_name=repo_full_name, commit_sha="sha-1", chunk_count=1, files_embedded=1)
+
+    async def incremental_index(self, repo_full_name: str, **kwargs: object) -> IndexResult:
+        if self._raise_error:
+            raise self._raise_error
+        return IndexResult(repo_full_name=repo_full_name, commit_sha="sha-2", chunk_count=1, files_embedded=1)
+
+    async def mark_failed(self, repo_full_name: str, error: str) -> None:
+        self.failed.append((repo_full_name, error))
+
+
+async def test_index_repo_marks_failed_and_reraises_on_error():
+    indexer = FakeIndexer(raise_error=RuntimeError("tarball fetch failed"))
+    job = IndexRepoJob(delivery_id="d1", repo_full_name="acme/widgets").model_dump()
+
+    with pytest.raises(RuntimeError, match="tarball fetch failed"):
+        await index_repo({"indexer": indexer}, job)
+
+    assert indexer.failed == [("acme/widgets", "tarball fetch failed")]
+
+
+async def test_index_repo_does_not_mark_failed_on_success():
+    indexer = FakeIndexer()
+    job = IndexRepoJob(delivery_id="d1", repo_full_name="acme/widgets").model_dump()
+
+    result = await index_repo({"indexer": indexer}, job)
+
+    assert result["repo_full_name"] == "acme/widgets"
+    assert indexer.failed == []
+
+
+async def test_reindex_repo_marks_failed_and_reraises_on_error():
+    indexer = FakeIndexer(raise_error=RuntimeError("embedding call failed"))
+    job = ReindexRepoJob(
+        delivery_id="d1",
+        repo_full_name="acme/widgets",
+        before_sha="sha-before",
+        after_sha="sha-after",
+        added=["new.py"],
+        modified=[],
+        removed=[],
+    ).model_dump()
+
+    with pytest.raises(RuntimeError, match="embedding call failed"):
+        await reindex_repo({"indexer": indexer}, job)
+
+    assert indexer.failed == [("acme/widgets", "embedding call failed")]
 
 
 # ── live: full index / incremental / removed-file deletion ──────────────
