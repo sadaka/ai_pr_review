@@ -13,6 +13,7 @@ bother a human when it's genuinely uncertain.
 
 - [What is this?](#what-is-this)
 - [How it works](#how-it-works)
+- [Screenshots](#screenshots)
 - [Why use it?](#why-use-it)
 - [How is it better than CodeRabbit / Greptile / Qodo?](#how-is-it-better-than-coderabbit--greptile--qodo)
 - [Who is this for?](#who-is-this-for)
@@ -76,6 +77,16 @@ GitHub ──webhook──▶ webhook_receiver ──enqueue──▶ redis ─�
 6. **Everything is traced.** Every span, LLM call, tool call, and decision
    lands in an `agent_events` hypertable, joined to a live cost ledger a
    `BudgetGuard` enforces before every LLM call.
+
+## Screenshots
+
+**Dashboard — indexed repos, each with live indexing status:**
+
+<img width="990" height="668" alt="repositories" src="https://github.com/user-attachments/assets/3e99755f-1c0b-49f5-abc2-e7db1e3057ad" />
+
+**Review detail — per-agent findings, cost, and confidence:**
+
+<img width="992" height="415" alt="review-details" src="https://github.com/user-attachments/assets/204a68c9-2178-498c-92fa-d39cd4990282" />
 
 ## Why use it?
 
