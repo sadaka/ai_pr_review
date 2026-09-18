@@ -152,6 +152,17 @@ class Indexer:
 
         await self._db_guard(_op, name="ingestion.indexer.write")
 
+    async def mark_failed(self, repo_full_name: str, error: str) -> None:
+        """Called by the ARQ worker (`job_queue.arq_worker.index_repo` /
+        `reindex_repo`) when `full_index`/`incremental_index` raises, so the
+        dashboard can show `failed` instead of a repo stuck at `pending`
+        forever."""
+
+        async def _op() -> None:
+            await self._pool.execute(_MARK_FAILED, repo_full_name, error)
+
+        await self._db_guard(_op, name="ingestion.indexer.mark_failed")
+
     async def full_index(self, repo_full_name: str) -> IndexResult:
         fetched = await fetch_tarball(self._github, repo_full_name=repo_full_name)
         try:
@@ -229,10 +240,20 @@ _UPSERT_CHUNK = """
 """
 
 _UPSERT_REPO_INDEX_STATE = """
-    INSERT INTO repo_index_state (repo, last_indexed_commit, indexed_at, chunk_count)
-    VALUES ($1, $2, now(), $3)
+    INSERT INTO repo_index_state (repo, last_indexed_commit, indexed_at, chunk_count, status, error)
+    VALUES ($1, $2, now(), $3, 'done', NULL)
     ON CONFLICT (repo) DO UPDATE
         SET last_indexed_commit = EXCLUDED.last_indexed_commit,
             indexed_at = now(),
-            chunk_count = EXCLUDED.chunk_count
+            chunk_count = EXCLUDED.chunk_count,
+            status = 'done',
+            error = NULL
+"""
+
+_MARK_FAILED = """
+    INSERT INTO repo_index_state (repo, status, error)
+    VALUES ($1, 'failed', $2)
+    ON CONFLICT (repo) DO UPDATE
+        SET status = 'failed',
+            error = EXCLUDED.error
 """

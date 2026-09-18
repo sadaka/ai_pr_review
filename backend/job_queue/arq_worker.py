@@ -129,7 +129,11 @@ async def index_repo(ctx: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]
     granted to the App."""
     index_job = IndexRepoJob.model_validate(job)
     indexer: Indexer = ctx["indexer"]
-    result = await indexer.full_index(index_job.repo_full_name)
+    try:
+        result = await indexer.full_index(index_job.repo_full_name)
+    except Exception as exc:
+        await indexer.mark_failed(index_job.repo_full_name, str(exc))
+        raise
     return {
         "repo_full_name": result.repo_full_name,
         "commit_sha": result.commit_sha,
@@ -144,14 +148,18 @@ async def reindex_repo(ctx: dict[str, Any], job: dict[str, Any]) -> dict[str, An
 
     reindex_job = ReindexRepoJob.model_validate(job)
     indexer: Indexer = ctx["indexer"]
-    result = await indexer.incremental_index(
-        reindex_job.repo_full_name,
-        before_sha=reindex_job.before_sha,
-        after_sha=reindex_job.after_sha,
-        changed=ChangedFiles(
-            added=reindex_job.added, modified=reindex_job.modified, removed=reindex_job.removed
-        ),
-    )
+    try:
+        result = await indexer.incremental_index(
+            reindex_job.repo_full_name,
+            before_sha=reindex_job.before_sha,
+            after_sha=reindex_job.after_sha,
+            changed=ChangedFiles(
+                added=reindex_job.added, modified=reindex_job.modified, removed=reindex_job.removed
+            ),
+        )
+    except Exception as exc:
+        await indexer.mark_failed(reindex_job.repo_full_name, str(exc))
+        raise
     return {
         "repo_full_name": result.repo_full_name,
         "commit_sha": result.commit_sha,
