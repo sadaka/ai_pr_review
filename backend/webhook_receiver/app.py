@@ -5,6 +5,11 @@ Flow: verify HMAC signature -> dedup on X-GitHub-Delivery (applies to every
 event type, not just `pull_request`) -> parse + enqueue the event-specific job
 -> return 200 BEFORE any review/ingestion work happens.
 
+For the three ingestion events, enqueuing also marks the repo `pending` in
+`repo_index_state` (via `ingestion.repo_status.RepoStatusStore`) so the
+dashboard can show "indexing" as soon as the webhook lands, not just once the
+ARQ worker eventually finishes it.
+
 Failure handling: any Redis failure (dedup claim OR enqueue) results in a 503,
 never a silent 200. If the dedup claim succeeded but the enqueue then failed,
 the claim is rolled back (`unclaim`) so a GitHub redelivery of the same
@@ -45,11 +50,27 @@ class SupportsJobQueue(Protocol):
     async def enqueue_reindex_repo(self, job: ReindexRepoJob) -> str | None: ...
 
 
-EnqueueOp = Callable[[SupportsJobQueue], Awaitable[object]]
+class SupportsRepoStatusStore(Protocol):
+    """Structural type for `ingestion.repo_status.RepoStatusStore` — real store
+    and test doubles both satisfy this without a hard import-time dependency."""
+
+    async def mark_pending(self, repo_full_name: str) -> None: ...
+
+
+class _NoOpRepoStatusStore:
+    """Default when the caller (tests, mostly) doesn't care about status
+    tracking — keeps `create_app`'s existing two-arg call sites working."""
+
+    async def mark_pending(self, repo_full_name: str) -> None:
+        return None
+
+
+EnqueueOp = Callable[[SupportsJobQueue, SupportsRepoStatusStore], Awaitable[object]]
 
 
 def _index_op(delivery_id: str, repo_full_name: str) -> EnqueueOp:
-    async def _op(q: SupportsJobQueue) -> object:
+    async def _op(q: SupportsJobQueue, status_store: SupportsRepoStatusStore) -> object:
+        await status_store.mark_pending(repo_full_name)
         return await q.enqueue_index_repo(IndexRepoJob(delivery_id=delivery_id, repo_full_name=repo_full_name))
 
     return _op
@@ -70,7 +91,7 @@ def _build_enqueue_ops(event: str, delivery_id: str, raw_body: bytes) -> list[En
             action=pr_payload.action,
         )
 
-        async def _review_op(q: SupportsJobQueue) -> object:
+        async def _review_op(q: SupportsJobQueue, status_store: SupportsRepoStatusStore) -> object:
             return await q.enqueue_review(review_job)
 
         return [_review_op]
@@ -108,7 +129,8 @@ def _build_enqueue_ops(event: str, delivery_id: str, raw_body: bytes) -> list[En
             removed=removed,
         )
 
-        async def _reindex_op(q: SupportsJobQueue) -> object:
+        async def _reindex_op(q: SupportsJobQueue, status_store: SupportsRepoStatusStore) -> object:
+            await status_store.mark_pending(push_payload.repository.full_name)
             return await q.enqueue_reindex_repo(reindex_job)
 
         return [_reindex_op]
@@ -116,12 +138,18 @@ def _build_enqueue_ops(event: str, delivery_id: str, raw_body: bytes) -> list[En
     return None  # pragma: no cover - unreachable, event already filtered by caller
 
 
-def create_app(job_queue: SupportsJobQueue, webhook_secret: Callable[[], str] | str) -> FastAPI:
+def create_app(
+    job_queue: SupportsJobQueue,
+    webhook_secret: Callable[[], str] | str,
+    repo_status_store: SupportsRepoStatusStore | None = None,
+) -> FastAPI:
     """Build the FastAPI app. `job_queue` and `webhook_secret` are injected so
     tests can pass a fake queue / fixed secret instead of touching real Redis
-    or environment state."""
+    or environment state. `repo_status_store` defaults to a no-op so existing
+    callers that don't care about status tracking are unaffected."""
 
     secret_getter = webhook_secret if callable(webhook_secret) else (lambda: webhook_secret)
+    status_store = repo_status_store or _NoOpRepoStatusStore()
     app = FastAPI(title="ai-pr-review webhook ingress")
 
     @app.post("/webhook")
@@ -163,7 +191,7 @@ def create_app(job_queue: SupportsJobQueue, webhook_secret: Callable[[], str] | 
 
         try:
             for op in enqueue_ops:
-                await op(job_queue)
+                await op(job_queue, status_store)
         except Exception:
             logger.exception("enqueue failed for delivery %s — rolling back dedup claim", x_github_delivery)
             try:
@@ -189,12 +217,17 @@ def build_default_app() -> FastAPI:  # pragma: no cover - wired up at real runti
     """
     from contextlib import asynccontextmanager
 
+    import asyncpg  # type: ignore[import-untyped]
+
+    from ingestion.repo_status import RepoStatusStore
     from job_queue.queue import JobQueue
 
     redis_url = os.environ["REDIS_URL"]
     webhook_secret = os.environ["GITHUB_WEBHOOK_SECRET"]
+    database_url = os.environ["TIGER_DATABASE_URL"]
 
     connected: dict[str, JobQueue] = {}
+    pools: dict[str, asyncpg.Pool] = {}
 
     class _DeferredQueue:
         def _q(self) -> JobQueue:
@@ -218,15 +251,27 @@ def build_default_app() -> FastAPI:  # pragma: no cover - wired up at real runti
         async def enqueue_reindex_repo(self, job: ReindexRepoJob) -> str | None:
             return await self._q().enqueue_reindex_repo(job)
 
+    class _DeferredRepoStatusStore:
+        def _store(self) -> RepoStatusStore:
+            try:
+                return RepoStatusStore(pools["db"])
+            except KeyError:
+                raise HTTPException(status_code=503, detail="database not connected yet")
+
+        async def mark_pending(self, repo_full_name: str) -> None:
+            await self._store().mark_pending(repo_full_name)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         connected["queue"] = await JobQueue.connect(redis_url)
-        logger.info("job queue connected")
+        pools["db"] = await asyncpg.create_pool(database_url, min_size=1, max_size=5)
+        logger.info("job queue and database connected")
         try:
             yield
         finally:
             await connected["queue"].close()
+            await pools["db"].close()
 
-    app = create_app(_DeferredQueue(), webhook_secret)
+    app = create_app(_DeferredQueue(), webhook_secret, _DeferredRepoStatusStore())
     app.router.lifespan_context = lifespan
     return app
